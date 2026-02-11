@@ -1,0 +1,158 @@
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: adult-income-tune
+  namespace: participant-17
+spec:
+  objective:
+    type: minimize
+    goal: 0.295
+    objectiveMetricName: val_log_loss_best
+    additionalMetricNames: [val_accuracy, val_f1, test_accuracy, test_f1]
+
+  algorithm:
+    algorithmName: random
+
+  maxTrialCount: 12
+  parallelTrialCount: 2
+  maxFailedTrialCount: 3
+
+  parameters:
+    - name: lr
+      parameterType: double
+      feasibleSpace: {min: "0.0003", max: "0.01"}
+    - name: hidden
+      parameterType: int
+      feasibleSpace: {min: "64", max: "256"}
+    - name: dropout
+      parameterType: double
+      feasibleSpace: {min: "0.0", max: "0.5"}
+    - name: weight_decay
+      parameterType: double
+      feasibleSpace: {min: "0.0", max: "0.001"}
+    - name: batch_size
+      parameterType: int
+      feasibleSpace: {min: "128", max: "512"}
+
+  metricsCollectorSpec:
+    collector:
+      kind: File
+    source:
+      fileSystemPath:
+        path: /tmp/metrics.json
+        kind: File
+
+  trialTemplate:
+    retain: true
+    primaryContainerName: main
+    trialParameters:
+      - name: lr
+        reference: lr
+      - name: hidden
+        reference: hidden
+      - name: dropout
+        reference: dropout
+      - name: weight_decay
+        reference: weight_decay
+      - name: batch_size
+        reference: batch_size
+
+    trialSpec:
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        backoffLimit: 0
+        template:
+          metadata:
+            labels:
+              katib.kubeflow.org/experiment: adult-income-tune
+              app: adult-income-tune
+            annotations:
+              sidecar.istio.io/inject: "false"
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: main
+                image: python:3.11-slim
+                imagePullPolicy: IfNotPresent
+                command: ["bash", "-lc"]
+                args:
+                  - >-
+                    set -euo pipefail;
+                    export DEBIAN_FRONTEND=noninteractive;
+                    apt-get update -y >/dev/null;
+                    apt-get install -y --no-install-recommends libgomp1 >/dev/null;
+                    rm -rf /var/lib/apt/lists/*;
+                    python -m pip install --quiet --no-cache-dir numpy==1.26.4 scikit-learn==1.4.2;
+                    python -c "import csv,json,os,sys,traceback,urllib.request,numpy as np;
+                    from sklearn.model_selection import train_test_split;
+                    from sklearn.compose import ColumnTransformer;
+                    from sklearn.preprocessing import OneHotEncoder,StandardScaler;
+                    from sklearn.pipeline import Pipeline;
+                    from sklearn.metrics import log_loss,accuracy_score,f1_score;
+                    from sklearn.neural_network import MLPClassifier;
+                    lr=float('${trialParameters.lr}'); hidden=int('${trialParameters.hidden}');
+                    dropout=float('${trialParameters.dropout}'); weight_decay=float('${trialParameters.weight_decay}');
+                    batch_size=int('${trialParameters.batch_size}');
+                    base='https://archive.ics.uci.edu/ml/machine-learning-databases/adult';
+                    u1=base+'/adult.data'; u2=base+'/adult.test';
+                    def d(u): return urllib.request.urlopen(u).read().decode('utf-8','replace');
+                    def p(t,is_test):
+                      lines=[];
+                      for i,r in enumerate(t.splitlines()):
+                        r=r.strip();
+                        if (not r) or r.startswith('|'): continue;
+                        if is_test and i==0 and r.lower().startswith('age'): continue;
+                        lines.append(r);
+                      rows=[];
+                      for row in csv.reader(lines,delimiter=',',skipinitialspace=True):
+                        if len(row)!=15: continue;
+                        if is_test: row[-1]=row[-1].rstrip('.');
+                        rows.append(row);
+                      return rows;
+                    def w(ll,va,vf,ta,tf):
+                      os.makedirs('/tmp',exist_ok=True);
+                      json.dump({'metrics':[
+                        {'name':'val_log_loss_best','numberValue':float(ll)},
+                        {'name':'val_accuracy','numberValue':float(va)},
+                        {'name':'val_f1','numberValue':float(vf)},
+                        {'name':'test_accuracy','numberValue':float(ta)},
+                        {'name':'test_f1','numberValue':float(tf)}
+                      ]}, open('/tmp/metrics.json','w'));
+                      print(f'val_log_loss_best={ll}',flush=True);
+                      print(f'val_accuracy={va}',flush=True);
+                      print(f'val_f1={vf}',flush=True);
+                      print(f'test_accuracy={ta}',flush=True);
+                      print(f'test_f1={tf}',flush=True);
+                      print('wrote_metrics_file=/tmp/metrics.json',flush=True);
+                    try:
+                      tr=p(d(u1),False); te=p(d(u2),True); allr=tr+te;
+                      X_raw=[r[:-1] for r in allr]; y_raw=[r[-1] for r in allr];
+                      y=np.array([1 if v.strip()=='>50K' else 0 for v in y_raw],dtype=np.int64);
+                      num=[0,2,4,10,11,12]; cat=[1,3,5,6,7,8,9,13];
+                      pre=ColumnTransformer([
+                        ('num',Pipeline([('scaler',StandardScaler())]),num),
+                        ('cat',OneHotEncoder(handle_unknown='ignore',sparse_output=False),cat)
+                      ],remainder='drop');
+                      X=pre.fit_transform(np.array(X_raw,dtype=object)).astype(np.float32);
+                      Xtr,Xtmp,ytr,ytmp=train_test_split(X,y,test_size=0.3,random_state=42,stratify=y);
+                      Xv,Xt,yv,yt=train_test_split(Xtmp,ytmp,test_size=(2/3),random_state=42,stratify=ytmp);
+                      alpha=max(0.0,weight_decay)+max(0.0,dropout);
+                      clf=MLPClassifier(hidden_layer_sizes=(hidden,hidden),activation='relu',solver='adam',
+                        alpha=alpha,batch_size=batch_size,learning_rate_init=lr,max_iter=50,early_stopping=True,
+                        n_iter_no_change=5,tol=1e-4,random_state=42,verbose=False);
+                      clf.fit(Xtr,ytr);
+                      vp=clf.predict_proba(Xv)[:,1]; vpred=(vp>=0.5).astype(int);
+                      va=float(accuracy_score(yv,vpred)); vf=float(f1_score(yv,vpred)); ll=float(log_loss(yv,vp));
+                      tp=clf.predict_proba(Xt)[:,1]; tpred=(tp>=0.5).astype(int);
+                      ta=float(accuracy_score(yt,tpred)); tf=float(f1_score(yt,tpred));
+                      w(ll,va,vf,ta,tf);
+                    except Exception:
+                      traceback.print_exc(file=sys.stderr); w(999.0,0.0,0.0,0.0,0.0); sys.exit(0)";
+                resources:
+                  requests:
+                    cpu: "200m"
+                    memory: "512Mi"
+                  limits:
+                    cpu: "1"
+                    memory: "2Gi"

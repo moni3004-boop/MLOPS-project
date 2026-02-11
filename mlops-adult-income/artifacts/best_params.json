@@ -1,0 +1,10 @@
+{
+  "trial": 10,
+  "lr": 0.003,
+  "hidden": 128,
+  "dropout": 0.0,
+  "batch_size": 128,
+  "val_best_accuracy_at_0_5": 0.8596652848149854,
+  "test_accuracy_at_0_5": 0.8522818008721823,
+  "test_f1_at_0_5": 0.6888342605770474
+}

@@ -1,0 +1,230 @@
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: adult-income-tune
+  namespace: participant-17
+spec:
+  objective:
+    type: minimize
+    goal: 0.295
+    objectiveMetricName: val_log_loss_best
+    additionalMetricNames:
+      - val_accuracy
+      - val_f1
+      - test_accuracy
+      - test_f1
+
+  algorithm:
+    algorithmName: random
+
+  maxTrialCount: 12
+  parallelTrialCount: 2
+  maxFailedTrialCount: 3
+
+  parameters:
+    - name: lr
+      parameterType: double
+      feasibleSpace:
+        min: "0.0003"
+        max: "0.01"
+    - name: hidden
+      parameterType: int
+      feasibleSpace:
+        min: "64"
+        max: "256"
+    - name: dropout
+      parameterType: double
+      feasibleSpace:
+        min: "0.0"
+        max: "0.5"
+    - name: weight_decay
+      parameterType: double
+      feasibleSpace:
+        min: "0.0"
+        max: "0.001"
+    - name: batch_size
+      parameterType: int
+      feasibleSpace:
+        min: "128"
+        max: "512"
+
+  # ✅ back to StdOut (avoid file collector shell issues)
+  metricsCollectorSpec:
+    collector:
+      kind: StdOut
+
+  trialTemplate:
+    retain: true
+    primaryContainerName: training-container
+    trialParameters:
+      - name: lr
+        reference: lr
+      - name: hidden
+        reference: hidden
+      - name: dropout
+        reference: dropout
+      - name: weight_decay
+        reference: weight_decay
+      - name: batch_size
+        reference: batch_size
+
+    trialSpec:
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        backoffLimit: 0
+        template:
+          metadata:
+            labels:
+              katib.kubeflow.org/experiment: adult-income-tune
+              app: adult-income-tune
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: training-container
+                image: python:3.11-slim
+                imagePullPolicy: IfNotPresent
+                command: ["bash", "-lc"]
+                args:
+                  - |
+                    set -euo pipefail
+
+                    python -m pip install --quiet --no-cache-dir \
+                      numpy==1.26.4 scikit-learn==1.4.2
+
+                    python - <<'PY'
+                    import csv, urllib.request, numpy as np
+                    from sklearn.model_selection import train_test_split
+                    from sklearn.compose import ColumnTransformer
+                    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+                    from sklearn.pipeline import Pipeline
+                    from sklearn.metrics import log_loss, accuracy_score, f1_score
+                    from sklearn.neural_network import MLPClassifier
+                    import sys, traceback
+
+                    lr = float("${trialParameters.lr}")
+                    hidden = int("${trialParameters.hidden}")
+                    dropout = float("${trialParameters.dropout}")
+                    weight_decay = float("${trialParameters.weight_decay}")
+                    batch_size = int("${trialParameters.batch_size}")
+
+                    dataset_url = "https://archive.ics.uci.edu/ml/machine-learning-databases/adult"
+                    adult_data_url = dataset_url.rstrip("/") + "/adult.data"
+                    adult_test_url = dataset_url.rstrip("/") + "/adult.test"
+
+                    def _download_text(url: str) -> str:
+                        with urllib.request.urlopen(url) as resp:
+                            return resp.read().decode("utf-8", errors="replace")
+
+                    def _parse(text: str, is_test: bool):
+                        lines=[]
+                        for i, raw in enumerate(text.splitlines()):
+                            raw=raw.strip()
+                            if not raw or raw.startswith("|"):
+                                continue
+                            if is_test and i==0 and raw.lower().startswith("age"):
+                                continue
+                            lines.append(raw)
+                        rows=[]
+                        reader=csv.reader(lines, delimiter=",", skipinitialspace=True)
+                        for row in reader:
+                            if len(row)!=15:
+                                continue
+                            if is_test:
+                                row[-1]=row[-1].rstrip(".")
+                            rows.append(row)
+                        return rows
+
+                    def emit(best_ll, val_acc, val_f1v, test_acc, test_f1v):
+                        # ✅ StdOut collector friendly: "<name> <value>"
+                        print(f"val_log_loss_best {best_ll}", flush=True)
+                        print(f"val_accuracy {val_acc}", flush=True)
+                        print(f"val_f1 {val_f1v}", flush=True)
+                        print(f"test_accuracy {test_acc}", flush=True)
+                        print(f"test_f1 {test_f1v}", flush=True)
+
+                    try:
+                        train_rows=_parse(_download_text(adult_data_url), False)
+                        test_rows=_parse(_download_text(adult_test_url), True)
+                        all_rows=train_rows+test_rows
+
+                        X_raw=[r[:-1] for r in all_rows]
+                        y_raw=[r[-1] for r in all_rows]
+                        y=np.array([1 if v.strip()==">50K" else 0 for v in y_raw], dtype=np.int64)
+
+                        numeric_idx=[0,2,4,10,11,12]
+                        categorical_idx=[1,3,5,6,7,8,9,13]
+
+                        preprocessor=ColumnTransformer(
+                            transformers=[
+                                ("num", Pipeline(steps=[("scaler", StandardScaler())]), numeric_idx),
+                                ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_idx),
+                            ],
+                            remainder="drop",
+                        )
+
+                        X_obj=np.array(X_raw, dtype=object)
+                        X=preprocessor.fit_transform(X_obj).astype(np.float32)
+
+                        test_size=0.2
+                        val_size=0.1
+                        random_state=42
+
+                        X_train, X_tmp, y_train, y_tmp = train_test_split(
+                            X, y,
+                            test_size=(test_size + val_size),
+                            random_state=random_state,
+                            stratify=y
+                        )
+                        val_frac = val_size / max(1e-9, (val_size + test_size))
+                        X_val, X_test, y_val, y_test = train_test_split(
+                            X_tmp, y_tmp,
+                            test_size=(1.0 - val_frac),
+                            random_state=random_state,
+                            stratify=y_tmp
+                        )
+
+                        alpha = max(0.0, weight_decay) + max(0.0, dropout)
+
+                        clf = MLPClassifier(
+                            hidden_layer_sizes=(hidden, hidden),
+                            activation="relu",
+                            solver="adam",
+                            alpha=alpha,
+                            batch_size=batch_size,
+                            learning_rate_init=lr,
+                            max_iter=50,
+                            early_stopping=True,
+                            n_iter_no_change=5,
+                            tol=1e-4,
+                            random_state=random_state,
+                            verbose=False,
+                        )
+                        clf.fit(X_train, y_train)
+
+                        val_proba = clf.predict_proba(X_val)[:,1]
+                        val_pred = (val_proba >= 0.5).astype(int)
+                        val_acc = float(accuracy_score(y_val, val_pred))
+                        val_f1v = float(f1_score(y_val, val_pred))
+                        best_ll = float(log_loss(y_val, val_proba))
+
+                        test_proba = clf.predict_proba(X_test)[:,1]
+                        test_pred = (test_proba >= 0.5).astype(int)
+                        test_acc = float(accuracy_score(y_test, test_pred))
+                        test_f1v = float(f1_score(y_test, test_pred))
+
+                        emit(best_ll, val_acc, val_f1v, test_acc, test_f1v)
+
+                    except Exception:
+                        traceback.print_exc(file=sys.stderr)
+                        # Always emit fallback metrics (and exit 0 so Job is Succeeded)
+                        emit(999.0, 0.0, 0.0, 0.0, 0.0)
+                        sys.exit(0)
+                    PY
+                resources:
+                  requests:
+                    cpu: "200m"
+                    memory: "512Mi"
+                  limits:
+                    cpu: "1"
+                    memory: "2Gi"
