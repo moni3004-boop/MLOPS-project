@@ -10,42 +10,37 @@ jobs:
   build-test-secure:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        shell: bash
-        working-directory: mlops-adult-income
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
           cache-dependency-path: mlops-adult-income/requirements.txt
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r mlops-adult-income/requirements.txt
           pip install kfp pip-audit
 
-      - name: Compile Kubeflow Pipeline
+      - name: Compile pipeline
         run: |
-          python adult_income_end2end_pipeline.py
-          ls -la pipeline
+          python mlops-adult-income/adult_income_end2end_pipeline.py
+          ls -la mlops-adult-income/pipeline
 
-      - name: Run Dependency Security Scan (pip-audit)
+      - name: Dependency security scan
         run: |
           pip-audit || true
 
-      - name: Build Docker Image
+      - name: Docker build
         run: |
-          docker build -t adult-income-api:ci -f Dockerfile .
+          docker build -t adult-income-api:ci -f mlops-adult-income/Dockerfile mlops-adult-income
 
-      - name: Upload Compiled Pipeline Artifact
+      - name: Upload compiled pipeline
         uses: actions/upload-artifact@v4
         with:
           name: compiled-pipeline
