@@ -1,5 +1,10 @@
 kfp==2.15.2
 numpy==1.26.4
-scikit-learn==1.4.2
-joblib==1.4.2
+scikit-learn>=1.5.0,<2.0
+scipy
+joblib
+pandas
+fastapi
+uvicorn[standard]
+prometheus-client
 pip-audit==2.7.3
