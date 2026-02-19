@@ -39,6 +39,14 @@ jobs:
       - name: Docker build
         run: |
           docker build -t adult-income-api:ci -f mlops-adult-income/Dockerfile mlops-adult-income
+      - name: Smoke test container (imports + health)
+        run: |
+          docker run -d --name api -p 8080:8080 adult-income-api:ci
+          sleep 3
+          docker logs api --tail 50
+          curl -f http://localhost:8080/health
+          docker rm -f api
+
 
       - name: Upload compiled pipeline
         uses: actions/upload-artifact@v4
