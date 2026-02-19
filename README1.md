@@ -350,12 +350,24 @@ This project demonstrates a fully functional end-to-end MLOps solution including
 
 ```mermaid
 flowchart LR
-    A[Raw Dataset] --> B[Preprocessing]
-    B --> C[Training]
-    C --> D[Evaluation]
-    D --> E[Model Artifact]
-    E --> F[Docker Image]
-    F --> G[Kubernetes Deployment]
-    G --> H[FastAPI Service]
-    H --> I[Prometheus Monitoring]
+  G[GitHub Repo] --> A[CI Pipeline]
+  A --> S[Security Checks]
+  A --> P[Compile Pipeline]
+  A --> I[Build Image]
+
+  P --> R[Pipeline Run]
+  R --> PP[Preprocess]
+  PP --> TR[Train Evaluate]
+  TR --> M[Model Artifact]
+  TR --> MET[Metrics]
+  TR --> ML[MLflow]
+  R --> KAT[Katib Tuning]
+  KAT --> TR
+
+  I --> K8S[Kustomize Manifests]
+  K8S --> MK[MicroK8s NodePort]
+  K8S --> GKE[GKE LoadBalancer]
+
+  M --> API[FastAPI Serving]
+  API --> MON[Monitoring]
 ```
