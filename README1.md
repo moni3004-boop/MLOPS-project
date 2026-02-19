@@ -348,13 +348,14 @@ This project demonstrates a fully functional end-to-end MLOps solution including
 - Monitoring and retraining strategy  
 
 
-## Pipeline Architecture
-
 ```mermaid
-flowchart TD
-    A[Preprocessing Step] --> B[Train & Evaluate Model]
-    B --> C[Model Artifact (.pt)]
-    B --> D[Metrics Artifact]
-    C --> E[Model Serving API]
-    D --> F[Monitoring System]
+flowchart LR
+    A[Raw Dataset] --> B[Preprocessing]
+    B --> C[Training]
+    C --> D[Evaluation]
+    D --> E[Model Artifact]
+    E --> F[Docker Image]
+    F --> G[Kubernetes Deployment]
+    G --> H[FastAPI Service]
+    H --> I[Prometheus Monitoring]
 ```
