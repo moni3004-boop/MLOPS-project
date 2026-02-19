@@ -69,6 +69,17 @@ def predict(req: PredictRequest):
     import pandas as pd
     X = pd.DataFrame([req.record])
 
+    # ---- Fix: accept original Adult column names and map to snake_case ----
+    rename_map = {
+        "education-num": "education_num",
+        "marital-status": "marital_status",
+        "capital-gain": "capital_gain",
+        "capital-loss": "capital_loss",
+        "hours-per-week": "hours_per_week",
+        "native-country": "native_country",
+    }
+    X = X.rename(columns=rename_map)
+
     Xt = preprocessor.transform(X)
     if hasattr(Xt, "toarray"):
         Xt = Xt.toarray()
