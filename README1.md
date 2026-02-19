@@ -346,31 +346,15 @@ This project demonstrates a fully functional end-to-end MLOps solution including
 - CI/CD automation  
 - Multi-cloud Kubernetes deployment  
 - Monitoring and retraining strategy  
+
+
+## Pipeline Architecture
+
 ```mermaid
-flowchart LR
-  A[Adult Income Dataset<br/>data/adult.csv] --> B[Preprocessing<br/>src/preprocess.py]
-  B --> C[Training + Evaluation<br/>src/train_pytorch.py + src/evaluate.py]
-  C --> D[Artifacts<br/>model_out/ + artifacts/]
-  C --> E[MLflow Tracking<br/>mlruns/ + mlflow.db]
-
-  subgraph KFP[Kubeflow Pipelines]
-    B
-    C
-    D
-  end
-
-  subgraph Katib[Katib Hyperparameter Tuning]
-    K[Experiment Spec<br/>katib_adult_income_tuning.yaml] --> C
-  end
-
-  D --> S[FastAPI Serving<br/>src/serve_api.py]
-  S --> K8s[Kubernetes Deployment<br/>manifests/base]
-
-  subgraph MultiCloud[Multi-Cloud Portability (Kustomize)]
-    MK[MicroK8s Overlay<br/>NodePort] --> K8s
-    GKE[GKE Overlay<br/>LoadBalancer] --> K8s
-  end
-
-  GH[GitHub Actions CI/CD<br/>.github/workflows/mlops.yml] --> D
-  GH --> IMG[Docker Image Build<br/>Dockerfile]
-  IMG --> K8s
+flowchart TD
+    A[Preprocessing Step] --> B[Train & Evaluate Model]
+    B --> C[Model Artifact (.pt)]
+    B --> D[Metrics Artifact]
+    C --> E[Model Serving API]
+    D --> F[Monitoring System]
+```
