@@ -14,10 +14,9 @@ spec:
         app: github-runner
     spec:
       serviceAccountName: default-editor
-      restartPolicy: Always
       containers:
         - name: runner
-          image: ghcr.io/actions/actions-runner:latest
+          image: python:3.11-slim
           imagePullPolicy: Always
           env:
             - name: REPO_URL
@@ -25,25 +24,52 @@ spec:
             - name: RUNNER_TOKEN
               value: "B6GIDRW575FFLVDTGW3SOPLJTSNOE"
             - name: RUNNER_NAME
-              value: "kubeflow-runner"
+              value: "kubeflow-runner-17"
             - name: RUNNER_LABELS
-              value: "self-hosted,kubeflow,linux"
-          command: ["/bin/bash", "-c"]
+              value: "kubeflow,linux"
+            - name: RUNNER_VERSION
+              value: "2.331.0"
+          command: ["/bin/bash", "-lc"]
           args:
             - |
               set -e
-              ./config.sh \
-                --url $REPO_URL \
-                --token $RUNNER_TOKEN \
-                --name $RUNNER_NAME \
-                --labels $RUNNER_LABELS \
+
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                curl ca-certificates unzip git \
+                libicu76 libkrb5-3 zlib1g libssl3 \
+                liblttng-ust1t64 libnuma1
+              rm -rf /var/lib/apt/lists/*
+
+              if ! id -u runner >/dev/null 2>&1; then
+                useradd -m -u 1001 -s /bin/bash runner
+              fi
+
+              mkdir -p /actions-runner
+              chown -R runner:runner /actions-runner
+              cd /actions-runner
+
+              echo "Downloading GitHub runner v${RUNNER_VERSION}..."
+              curl -fsSL -o actions-runner-linux-x64.tar.gz \
+                "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
+              tar xzf actions-runner-linux-x64.tar.gz
+              rm -f actions-runner-linux-x64.tar.gz
+              chown -R runner:runner /actions-runner
+
+              echo "Configuring runner..."
+              su - runner -c "cd /actions-runner && ./config.sh \
+                --url '${REPO_URL}' \
+                --token '${RUNNER_TOKEN}' \
+                --name '${RUNNER_NAME}' \
+                --labels '${RUNNER_LABELS}' \
                 --unattended \
-                --replace
-              ./run.sh
+                --replace"
+
+              exec su - runner -c "cd /actions-runner && ./run.sh"
           resources:
             requests:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "1Gi"
             limits:
               cpu: "1"
-              memory: "1Gi"
+              memory: "2Gi"
