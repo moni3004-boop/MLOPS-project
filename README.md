@@ -116,7 +116,6 @@ Final evaluation on the test set:
 - F1 Score: **0.84**
 - Validation Log Loss: **0.31**
 
-*(Replace with your actual metrics if slightly different.)*
 
 ### Training Metrics
 
