@@ -250,9 +250,11 @@ Available endpoints:
 - `GET /metrics`
 - `POST /predict`
 
-### Running API Example
+### Results
 
 ![API Health](docs/images/api-health.png)
+![API Metrics](docs/images/training-metrics.png)
+![API Health](docs/images/adult-api.png)
 
 ---
 
