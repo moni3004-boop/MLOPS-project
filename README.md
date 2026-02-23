@@ -62,7 +62,45 @@ The solution is organized into independent but connected layers:
 
 ### Architecture Diagram
 
-![Architecture](docs/images/architecture.png)
+## System Architecture
+
+```mermaid
+flowchart TD
+
+    A[Adult Dataset<br/>data/adult.csv]
+
+    B[Preprocessing<br/>src/preprocess.py]
+    C[Model Training<br/>PyTorch]
+    D[Evaluation<br/>Metrics + F1 + Accuracy]
+    E[MLflow Tracking]
+
+    F[Kubeflow Pipeline<br/>pipeline/adult_income_end2end.yaml]
+
+    G[Model Artifact<br/>model.pt]
+
+    H[FastAPI Service<br/>src/serve_api.py]
+    I[Docker Image<br/>docker/Dockerfile]
+    J[Kubernetes Deployment<br/>manifests/base]
+
+    K[GitHub Actions CI/CD]
+
+    A --> B
+    B --> C
+    C --> D
+    C --> E
+    D --> G
+
+    F --> B
+    F --> C
+    F --> D
+
+    G --> H
+    H --> I
+    I --> J
+
+    K --> I
+    K --> F
+```
 
 ---
 
