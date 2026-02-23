@@ -62,7 +62,6 @@ The solution is organized into independent but connected layers:
 
 ### Architecture Diagram
 
-## System Architecture
 
 ```mermaid
 flowchart TD
@@ -219,7 +218,7 @@ pipeline/kfp_pipeline.py
 
 ### Completed Pipeline Run
 
-![Pipeline Graph](docs/images/pipeline-graph.png)
+![Pipeline Graph](docs/images/mlflow-ui.png)
 
 ---
 
@@ -253,7 +252,7 @@ Available endpoints:
 
 ![API Health](docs/images/api-health.png)
 ![API Metrics](docs/images/training-metrics.png)
-![API Health](docs/images/adult-api.png)
+![swagger UI](docs/images/adult-api.png)
 
 ---
 
@@ -351,7 +350,7 @@ pip install -r requirements.txt
 Train locally:
 
 ```
-python src/train.py
+python src/train_pytorch.py
 ```
 
 Run API:
@@ -367,6 +366,19 @@ kubectl apply -k manifests/base
 ```
 
 ---
+
+## Production Readiness
+
+This implementation demonstrates production-oriented design principles:
+
+- Modular and decoupled components  
+- Environment-agnostic Kubernetes deployment  
+- Containerized training and serving  
+- Automated CI/CD pipeline  
+- Explicit artifact management  
+- Experiment traceability  
+
+The architecture is designed for extensibility and portability across different Kubernetes environments.
 
 ## Conclusion
 
