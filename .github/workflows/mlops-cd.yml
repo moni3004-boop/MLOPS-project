@@ -6,8 +6,7 @@ on:
 
 jobs:
   build-deploy-run:
-    runs-on: self-hosted
-    timeout-minutes: 30
+    runs-on: [self-hosted, kubeflow]
 
     env:
       NAMESPACE: participant-17
@@ -32,6 +31,7 @@ jobs:
             aarch64|arm64) KARCH="arm64" ;;
             *) echo "Unsupported arch: $ARCH" && exit 1 ;;
           esac
+
           curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/${KARCH}/kubectl"
           chmod +x kubectl
           mkdir -p "$HOME/bin"
