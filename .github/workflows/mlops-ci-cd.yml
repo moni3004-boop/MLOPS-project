@@ -1,56 +1,34 @@
-name: MLOps CI/CD
+name: Deploy to Kubeflow
 
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
-  build-deploy-run:
-    runs-on: [self-hosted, kubeflow]
-
-    env:
-      NAMESPACE: participant-17
-      KFP_HOST: http://ml-pipeline.kubeflow.svc.cluster.local:8888
-      KFP_NAMESPACE: participant-17
+  deploy:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Verify tools
+      - name: Install kubectl
         run: |
-          python3 --version
-          pip --version
-          kubectl version --client
+          curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
 
-      - name: Verify Kubernetes access
+      - name: Setup kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
         run: |
-          kubectl -n "$NAMESPACE" get pods
+          mkdir -p $HOME/.kube
+          echo "$KUBECONFIG_B64" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
 
-      - name: Install Python deps
+      - name: Test connection
         run: |
-          pip install -r requirements.txt
-          pip install "kfp>=2,<3"
+          kubectl get ns
 
-      - name: Run tests
+      - name: Deploy
         run: |
-          pytest -q || true
-
-      - name: Compile Kubeflow Pipeline
-        run: |
-          python pipeline/compile.py
-          ls -la pipeline/
-
-      - name: Deploy API to Kubernetes
-        run: |
-          kubectl -n "$NAMESPACE" apply -f k8s/deployment.yaml
-          kubectl -n "$NAMESPACE" rollout status deploy/adult-income-api --timeout=180s
-
-      - name: Trigger Kubeflow Pipeline Run
-        run: |
-          python pipeline/run_kfp.py \
-            --host "$KFP_HOST" \
-            --pipeline-yaml "pipeline/pipeline.yaml" \
-            --run-name "auto-${GITHUB_SHA::7}" \
-            --experiment-name "adult-income-ci" \
-            --namespace "$KFP_NAMESPACE"
+          kubectl -n participant-17 apply -f k8s/deployment.yaml
+          kubectl -n participant-17 rollout status deploy/adult-income-api
