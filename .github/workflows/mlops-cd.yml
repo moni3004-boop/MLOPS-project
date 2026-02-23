@@ -1,73 +1,27 @@
-name: MLOps CI/CD
+name: Build Runner Image
 
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  build-deploy-run:
-    runs-on: [self-hosted, kubeflow]
-
-    env:
-      NAMESPACE: participant-17
-      KFP_HOST: http://ml-pipeline.kubeflow.svc.cluster.local:8888
-      KFP_NAMESPACE: participant-17
-
+  build:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    #   - name: Ensure pip exists
-    #     run: |
-    #       python3 -m ensurepip --upgrade || true
-    #       python3 -m pip --version
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install kubectl
+      - name: Build and push
         run: |
-          set -e
-          ARCH="$(uname -m)"
-          case "$ARCH" in
-            x86_64|amd64) KARCH="amd64" ;;
-            aarch64|arm64) KARCH="arm64" ;;
-            *) echo "Unsupported arch: $ARCH" && exit 1 ;;
-          esac
-
-          curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/${KARCH}/kubectl"
-          chmod +x kubectl
-          mkdir -p "$HOME/bin"
-          mv kubectl "$HOME/bin/kubectl"
-          echo "$HOME/bin" >> $GITHUB_PATH
-          kubectl version --client
-
-      - name: Verify Kubernetes access
-        run: |
-          kubectl -n "$NAMESPACE" get pods
-
-      - name: Install Python dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install kfp==2.*
-
-      - name: Run tests
-        run: |
-          pytest -q || true
-
-      - name: Compile Kubeflow Pipeline
-        run: |
-          python pipeline/compile.py
-          ls -la pipeline/
-
-      - name: Deploy API to Kubernetes
-        run: |
-          kubectl -n "$NAMESPACE" apply -f k8s/deployment.yaml
-          kubectl -n "$NAMESPACE" rollout status deploy/adult-income-api --timeout=180s
-
-      - name: Trigger Kubeflow Pipeline Run
-        run: |
-          python pipeline/run_kfp.py \
-            --host "$KFP_HOST" \
-            --pipeline-yaml "pipeline/pipeline.yaml" \
-            --run-name "auto-${GITHUB_SHA::7}" \
-            --experiment-name "adult-income-ci" \
-            --namespace "$KFP_NAMESPACE"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/mlops-kubeflow-runner:2.331.0-py311"
+          docker build -f runner/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
