@@ -157,6 +157,14 @@ Final evaluation on the test set:
 
 ### Training Metrics
 
+The following metrics were generated during the pipeline execution and logged as artifacts:
+
+- Test Accuracy: 0.8578
+- Test F1 Score: 0.8775
+- Validation Accuracy: 0.8642
+- Validation F1 Score: 0.8648
+- Best Validation Log Loss: 0.3003
+
 ![Pipeline Graph](docs/images/pipeline-graph.png)
 
 ---
