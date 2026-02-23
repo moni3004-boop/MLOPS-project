@@ -17,10 +17,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Ensure pip exists
-        run: |
-          python3 -m ensurepip --upgrade || true
-          python3 -m pip --version
+    #   - name: Ensure pip exists
+    #     run: |
+    #       python3 -m ensurepip --upgrade || true
+    #       python3 -m pip --version
 
       - name: Install kubectl
         run: |
