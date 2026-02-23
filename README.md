@@ -157,7 +157,7 @@ Final evaluation on the test set:
 
 ### Training Metrics
 
-![Training Metrics](docs/images/training-metrics.png)
+![MLflow UI](docs/images/mlflow-ui.png)
 
 ---
 
