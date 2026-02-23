@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner
+  namespace: participant-17
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-runner
+  template:
+    metadata:
+      labels:
+        app: github-runner
+    spec:
+      serviceAccountName: default-editor
+      restartPolicy: Always
+      containers:
+        - name: runner
+          image: ghcr.io/actions/actions-runner:latest
+          imagePullPolicy: Always
+          env:
+            - name: REPO_URL
+              value: "https://github.com/moni3004-boop/MLOPS-project"
+            - name: RUNNER_TOKEN
+              value: "B6GIDRW575FFLVDTGW3SOPLJTSNOE"
+            - name: RUNNER_NAME
+              value: "kubeflow-runner"
+            - name: RUNNER_LABELS
+              value: "self-hosted,kubeflow,linux"
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              ./config.sh \
+                --url $REPO_URL \
+                --token $RUNNER_TOKEN \
+                --name $RUNNER_NAME \
+                --labels $RUNNER_LABELS \
+                --unattended \
+                --replace
+              ./run.sh
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
