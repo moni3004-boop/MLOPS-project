@@ -1,0 +1,20 @@
+{
+  "model": "pytorch_mlp",
+  "epochs": 10,
+  "batch_size": 128,
+  "lr": 0.003,
+  "hidden": 128,
+  "dropout": 0.0,
+  "weight_decay": 0.0,
+  "pos_weight_mode": "sqrt_ratio",
+  "pos_weight_scale": 1.0,
+  "pos_weight_value": 1.775499696156137,
+  "val_best_accuracy_at_0_5": 0.8596652848149854,
+  "val_best_f1_threshold": 0.45,
+  "val_best_f1": 0.7192466156562684,
+  "test_accuracy_at_0_5": 0.8522818008721823,
+  "test_f1_at_0_5": 0.6888342605770474,
+  "test_accuracy_at_best_thr": 0.8459554081444629,
+  "test_f1_at_best_thr": 0.6955571740713765,
+  "device": "cpu"
+}

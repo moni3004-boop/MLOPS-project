@@ -2,8 +2,6 @@ __pycache__/
 .ipynb_checkpoints/
 mlruns/
 mlflow.db
-model_out/
-artifacts/
 *.pt
 *.npy
 *.joblib

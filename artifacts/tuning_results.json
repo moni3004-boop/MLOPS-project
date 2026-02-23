@@ -1,0 +1,102 @@
+[
+  {
+    "trial": 1,
+    "lr": 0.002,
+    "hidden": 64,
+    "dropout": 0.0,
+    "batch_size": 384,
+    "val_best_accuracy_at_0_5": 0.8555197297712268,
+    "test_accuracy_at_0_5": 0.8474909403599288,
+    "test_f1_at_0_5": 0.6902058640049906
+  },
+  {
+    "trial": 2,
+    "lr": 0.0005,
+    "hidden": 96,
+    "dropout": 0.1,
+    "batch_size": 128,
+    "val_best_accuracy_at_0_5": 0.8532166436358053,
+    "test_accuracy_at_0_5": 0.8468153061851238,
+    "test_f1_at_0_5": 0.6915656690576305
+  },
+  {
+    "trial": 3,
+    "lr": 0.002,
+    "hidden": 256,
+    "dropout": 0.0,
+    "batch_size": 512,
+    "val_best_accuracy_at_0_5": 0.8556732688469215,
+    "test_accuracy_at_0_5": 0.8484122596892083,
+    "test_f1_at_0_5": 0.6868020304568528
+  },
+  {
+    "trial": 4,
+    "lr": 0.0003,
+    "hidden": 64,
+    "dropout": 0.0,
+    "batch_size": 256,
+    "val_best_accuracy_at_0_5": 0.8490710885920467,
+    "test_accuracy_at_0_5": 0.8436828204655734,
+    "test_f1_at_0_5": 0.6899744183213546
+  },
+  {
+    "trial": 5,
+    "lr": 0.0005,
+    "hidden": 256,
+    "dropout": 0.4,
+    "batch_size": 128,
+    "val_best_accuracy_at_0_5": 0.8536772608628896,
+    "test_accuracy_at_0_5": 0.8474909403599288,
+    "test_f1_at_0_5": 0.6922790928243896
+  },
+  {
+    "trial": 6,
+    "lr": 0.0015,
+    "hidden": 96,
+    "dropout": 0.4,
+    "batch_size": 512,
+    "val_best_accuracy_at_0_5": 0.8547520343927529,
+    "test_accuracy_at_0_5": 0.8467538848965052,
+    "test_f1_at_0_5": 0.6937523014606604
+  },
+  {
+    "trial": 7,
+    "lr": 0.0005,
+    "hidden": 192,
+    "dropout": 0.4,
+    "batch_size": 384,
+    "val_best_accuracy_at_0_5": 0.8506064793489944,
+    "test_accuracy_at_0_5": 0.8460168294330815,
+    "test_f1_at_0_5": 0.693408340467164
+  },
+  {
+    "trial": 8,
+    "lr": 0.003,
+    "hidden": 64,
+    "dropout": 0.1,
+    "batch_size": 512,
+    "val_best_accuracy_at_0_5": 0.8542914171656687,
+    "test_accuracy_at_0_5": 0.8488422087095387,
+    "test_f1_at_0_5": 0.6915653590675523
+  },
+  {
+    "trial": 9,
+    "lr": 0.0008,
+    "hidden": 128,
+    "dropout": 0.1,
+    "batch_size": 256,
+    "val_best_accuracy_at_0_5": 0.8558268079226163,
+    "test_accuracy_at_0_5": 0.8485965235550642,
+    "test_f1_at_0_5": 0.6896638549666373
+  },
+  {
+    "trial": 10,
+    "lr": 0.003,
+    "hidden": 128,
+    "dropout": 0.0,
+    "batch_size": 128,
+    "val_best_accuracy_at_0_5": 0.8596652848149854,
+    "test_accuracy_at_0_5": 0.8522818008721823,
+    "test_f1_at_0_5": 0.6888342605770474
+  }
+]
