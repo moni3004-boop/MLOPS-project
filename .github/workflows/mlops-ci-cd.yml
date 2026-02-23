@@ -28,7 +28,7 @@ jobs:
         run: |
           kubectl -n participant-17 get pods
 
-      - name: Deploy
+      - name: Deploy with Kustomize
         run: |
-          kubectl -n participant-17 apply -f k8s/deployment.yaml
-          kubectl -n participant-17 rollout status deploy/adult-income-api
+          kubectl -n participant-17 apply -k manifests/base
+          kubectl -n participant-17 rollout status deployment/adult-income-api --timeout=180s
