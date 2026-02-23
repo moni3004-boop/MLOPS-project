@@ -19,9 +19,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify Kubernetes access
-        run: |
-          kubectl -n "$NAMESPACE" get pods
+    #   - name: Verify Kubernetes access
+    #     run: |
+    #       kubectl -n "$NAMESPACE" get pods
 
       - name: Install Python dependencies
         run: |
