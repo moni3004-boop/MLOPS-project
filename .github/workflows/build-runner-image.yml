@@ -1,27 +1,31 @@
-name: Build Runner Image
+name: K8s Smoke Test
 
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  packages: write
+  workflow_dispatch: {}
 
 jobs:
-  build:
+  smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
+      - name: Install kubectl
         run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/mlops-kubeflow-runner:2.331.0-py311"
-          docker build -f runner/Dockerfile -t "$IMAGE" .
-          docker push "$IMAGE"
+          curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Setup kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.kube"
+          echo "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          echo "Kubeconfig written."
+
+      - name: Test cluster access
+        run: |
+          set -euo pipefail
+          kubectl cluster-info
+          kubectl get ns
