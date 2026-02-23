@@ -10,48 +10,9 @@ jobs:
 
     env:
       NAMESPACE: participant-17
-      KFP_HOST: http://ml-pipeline-ui.kubeflow.svc.cluster.local:80
-      KFP_NAMESPACE: kubeflow
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install kfp==2.*
-
-      - name: Run tests
-        run: |
-          pytest -q || true
-
-      - name: Compile Kubeflow Pipeline
-        run: |
-          python pipeline/compile.py
-
-      - name: Deploy API to Kubernetes
-        run: |
-          kubectl -n $NAMESPACE apply -f k8s/deployment.yaml
-          kubectl -n $NAMESPACE rollout status deploy/adult-income-api
-
-      - name: Trigger Kubeflow Pipeline Run
-        run: |
-          python pipeline/run_kfp.py \name: MLOps CI/CD
-
-on:
-  push:
-    branches: ["main"]
-
-jobs:
-  build-deploy-run:
-    runs-on: [self-hosted, kubeflow]
-
-    env:
-      NAMESPACE: participant-17
-      # ВАЖНО: користиме API service, НЕ UI
+      # Користи KFP API service (најчесто е ml-pipeline), не UI
       KFP_HOST: http://ml-pipeline.kubeflow.svc.cluster.local:8888
+      # Во multi-user најчесто namespace/profile е твојот namespace
       KFP_NAMESPACE: participant-17
 
     steps:
@@ -60,7 +21,7 @@ jobs:
 
       - name: Verify Kubernetes access
         run: |
-          kubectl get pods -n $NAMESPACE
+          kubectl -n "$NAMESPACE" get pods
 
       - name: Install Python dependencies
         run: |
@@ -79,8 +40,8 @@ jobs:
 
       - name: Deploy API to Kubernetes
         run: |
-          kubectl -n $NAMESPACE apply -f k8s/deployment.yaml
-          kubectl -n $NAMESPACE rollout status deploy/adult-income-api --timeout=180s
+          kubectl -n "$NAMESPACE" apply -f k8s/deployment.yaml
+          kubectl -n "$NAMESPACE" rollout status deploy/adult-income-api --timeout=180s
 
       - name: Trigger Kubeflow Pipeline Run
         run: |
@@ -90,8 +51,3 @@ jobs:
             --run-name "auto-${GITHUB_SHA::7}" \
             --experiment-name "adult-income-ci" \
             --namespace "$KFP_NAMESPACE"
-            --host $KFP_HOST \
-            --pipeline-yaml pipeline/pipeline.yaml \
-            --run-name auto-${GITHUB_SHA::7} \
-            --experiment-name adult-income-ci \
-            --namespace $KFP_NAMESPACE
