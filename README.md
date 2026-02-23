@@ -148,22 +148,32 @@ src/train_pytorch.py
 
 ## Model Performance
 
-Final evaluation on the test set:
+Final evaluation results obtained from the completed Kubeflow pipeline run.
 
-- Accuracy: **0.86**
-- F1 Score: **0.84**
-- Validation Log Loss: **0.31**
+### Test Set Performance
 
+- **Test Accuracy:** 0.8578  
+- **Test F1 Score:** 0.8775  
 
-### Training Metrics
+These metrics represent the final generalization performance of the trained model.
 
-The following metrics were generated during the pipeline execution and logged as artifacts:
+### Validation Performance
 
-- Test Accuracy: 0.8578
-- Test F1 Score: 0.8775
-- Validation Accuracy: 0.8642
-- Validation F1 Score: 0.8648
-- Best Validation Log Loss: 0.3003
+- **Validation Accuracy:** 0.8642  
+- **Validation F1 Score:** 0.8648  
+- **Best Validation Log Loss:** 0.3003  
+
+Validation metrics were used during training to monitor convergence and prevent overfitting.
+
+### Interpretation
+
+The model achieves balanced classification performance with:
+
+- Strong generalization (high test F1 score)  
+- Stable validation behavior  
+- Low validation log loss  
+
+This indicates that the model is neither underfitting nor significantly overfitting the dataset.
 
 ![Pipeline Graph](docs/images/pipeline-graph.png)
 
@@ -213,24 +223,13 @@ pipeline/kfp_pipeline.py
 
 ---
 
-## Hyperparameter Tuning (Katib Integration)
+### Hyperparameter Tuning (Katib - Experimental)
 
-An experimental integration with Kubeflow Katib is included.
+A Katib experiment configuration is included to demonstrate
+how hyperparameter tuning can be integrated in a Kubernetes-native workflow.
 
-Parameters explored:
-
-- Learning rate  
-- Hidden layer size  
-
-Katib configuration:
-
-```
-pipeline/katib_success.yaml
-```
-
-The tuning component demonstrates automated experimentation within Kubernetes.
-
-![Katib UI](docs/images/katib-ui.png)
+Note: Due to environment limitations, tuning execution may require
+additional cluster configuration.
 
 ---
 
