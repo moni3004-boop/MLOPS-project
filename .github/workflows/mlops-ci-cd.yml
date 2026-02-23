@@ -26,7 +26,7 @@ jobs:
 
       - name: Test connection
         run: |
-          kubectl get ns
+          kubectl -n participant-17 get pods
 
       - name: Deploy
         run: |
