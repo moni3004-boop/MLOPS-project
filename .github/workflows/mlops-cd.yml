@@ -10,18 +10,38 @@ jobs:
 
     env:
       NAMESPACE: participant-17
-      # Користи KFP API service (најчесто е ml-pipeline), не UI
       KFP_HOST: http://ml-pipeline.kubeflow.svc.cluster.local:8888
-      # Во multi-user најчесто namespace/profile е твојот namespace
       KFP_NAMESPACE: participant-17
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-    #   - name: Verify Kubernetes access
-    #     run: |
-    #       kubectl -n "$NAMESPACE" get pods
+      - name: Ensure pip exists
+        run: |
+          python3 -m ensurepip --upgrade || true
+          python3 -m pip --version
+
+      - name: Install kubectl
+        run: |
+          set -e
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64|amd64) KARCH="amd64" ;;
+            aarch64|arm64) KARCH="arm64" ;;
+            *) echo "Unsupported arch: $ARCH" && exit 1 ;;
+          esac
+
+          curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/${KARCH}/kubectl"
+          chmod +x kubectl
+          mkdir -p "$HOME/bin"
+          mv kubectl "$HOME/bin/kubectl"
+          echo "$HOME/bin" >> $GITHUB_PATH
+          kubectl version --client
+
+      - name: Verify Kubernetes access
+        run: |
+          kubectl -n "$NAMESPACE" get pods
 
       - name: Install Python dependencies
         run: |
