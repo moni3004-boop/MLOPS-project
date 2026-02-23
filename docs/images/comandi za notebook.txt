@@ -1,0 +1,9 @@
+comandi za notebook 
+PS C:\Users\monika.mladenovski\Desktop\MLOPs\github-mlops-files\MLOPS-project> $env:KUBECONFIG="C:\Users\monika.mladenovski\Desktop\MLOPS-local\ai-scalecamp-mlops-participant-17\ai-scalecamp-mlops-participant-17\kubeconfig.yaml"
+PS C:\Users\monika.mladenovski\Desktop\MLOPs\github-mlops-files\MLOPS-project> echo $env:KUBECONFIG                     
+C:\Users\monika.mladenovski\Desktop\MLOPS-local\ai-scalecamp-mlops-participant-17\ai-scalecamp-mlops-participant-17\kubeconfig.yaml
+PS C:\Users\monika.mladenovski\Desktop\MLOPs\github-mlops-files\MLOPS-project> kubectl --kubeconfig $env:KUBECONFIG -n participant-17 port-forward pod/pytorch-notebook-0 8888:8888
+
+metriki
+ PS C:\Users\monika.mladenovski\Desktop\MLOPs\github-mlops-files\MLOPS-project> kubectl -n participant-17 port-forward svc/adult-income-api 8080:8000
+Forwarding from 127.0.0.1:8080 -> 8000

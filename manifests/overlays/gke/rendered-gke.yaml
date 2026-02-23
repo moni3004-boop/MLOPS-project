@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: adult-income-api
+  name: adult-income-api
+  namespace: mlops-adult-income
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  selector:
+    app: adult-income-api
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: adult-income-api
+  name: adult-income-api
+  namespace: mlops-adult-income
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adult-income-api
+  template:
+    metadata:
+      labels:
+        app: adult-income-api
+    spec:
+      containers:
+      - image: adult-income-api:ci
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        name: api
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi

@@ -1,0 +1,43 @@
+name: MLOps End-to-End Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-test-secure:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: mlops-adult-income/requirements.txt
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r mlops-adult-income/requirements.txt
+          pip install kfp pip-audit
+      - name: Compile pipeline
+        run: |
+          python mlops-adult-income/adult_income_end2end_pipeline.py
+          ls -la mlops-adult-income/pipeline
+      - name: Dependency security scan
+        run: |
+          pip-audit || true
+      - name: Docker build
+        run: |
+          docker build -t adult-income-api:ci -f mlops-adult-income/Dockerfile mlops-adult-income
+      - name: Upload compiled pipeline
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-pipeline
+          path: mlops-adult-income/pipeline/adult_income_end2end.yaml

@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+# Reduce image size + avoid pip cache
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install runtime deps once, baked into the image
+RUN pip install --no-cache-dir \
+    numpy pandas scikit-learn joblib \
+    torch --index-url https://download.pytorch.org/whl/cpu \
+    mlflow \
+    kfp==2.4.0
+
+WORKDIR /app

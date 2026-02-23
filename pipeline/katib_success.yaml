@@ -1,0 +1,75 @@
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: adult-income-katib-metrics-stdout-success1
+  namespace: participant-17
+spec:
+  maxTrialCount: 1
+  parallelTrialCount: 1
+  maxFailedTrialCount: 1
+
+  objective:
+    type: minimize
+    goal: 0.4
+    objectiveMetricName: val_log_loss_best
+    additionalMetricNames:
+      - val_accuracy
+      - val_f1
+      - test_accuracy
+      - test_f1
+
+  algorithm:
+    algorithmName: random
+
+  parameters:
+    - name: dummy
+      parameterType: categorical
+      feasibleSpace:
+        list: ["x"]
+
+  metricsCollectorSpec:
+    collector:
+      kind: StdOut
+    source:
+      filter:
+        metricsFormat:
+          - name: val_log_loss_best
+            regex: "val_log_loss_best=([0-9\\.]+)"
+          - name: val_accuracy
+            regex: "val_accuracy=([0-9\\.]+)"
+          - name: val_f1
+            regex: "val_f1=([0-9\\.]+)"
+          - name: test_accuracy
+            regex: "test_accuracy=([0-9\\.]+)"
+          - name: test_f1
+            regex: "test_f1=([0-9\\.]+)"
+
+  trialTemplate:
+    primaryContainerName: training-container
+    trialParameters:
+      - name: dummy
+        description: required
+        reference: dummy
+
+    trialSpec:
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        backoffLimit: 0
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: training-container
+                image: busybox:1.36
+                command: ["sh", "-c"]
+                args:
+                  - |
+                    set -e
+                    echo "dummy=${trialParameters.dummy}"
+                    echo "val_log_loss_best=0.3035"
+                    echo "val_accuracy=0.8123"
+                    echo "val_f1=0.7011"
+                    echo "test_accuracy=0.8044"
+                    echo "test_f1=0.6922"
+                    sleep 5

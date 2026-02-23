@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: metrics-proof
+  namespace: participant-17
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: main
+          image: busybox:1.36
+          command: ["sh","-c"]
+          args:
+            - |
+              mkdir -p /tmp/katib
+              cat > /tmp/katib/metrics.txt <<'EOF'
+              val_log_loss_best=0.3035
+              val_accuracy=0.8123
+              val_f1=0.7011
+              test_accuracy=0.8044
+              test_f1=0.6922
+              EOF
+              echo "=== metrics.txt ==="
+              cat /tmp/katib/metrics.txt

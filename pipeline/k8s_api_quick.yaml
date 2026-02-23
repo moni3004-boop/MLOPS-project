@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adult-income-api
+  namespace: participant-17
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adult-income-api
+  template:
+    metadata:
+      labels:
+        app: adult-income-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: api
+          image: pytorch/pytorch:2.1.2-cpu
+          workingDir: /app
+          command:
+            - sh
+            - -c
+            - |
+              pip install --no-cache-dir fastapi uvicorn prometheus_client pandas numpy scikit-learn scipy joblib
+              uvicorn src.serve_api:app --host 0.0.0.0 --port 8000
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 25
+            periodSeconds: 20
+          volumeMounts:
+            - name: src-code
+              mountPath: /app/src
+            - name: model-out
+              mountPath: /app/model_out
+            - name: artifacts
+              mountPath: /app/artifacts
+      volumes:
+        - name: src-code
+          configMap:
+            name: adult-income-api-src
+        - name: model-out
+          configMap:
+            name: adult-income-api-model
+        - name: artifacts
+          configMap:
+            name: adult-income-api-artifacts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adult-income-api
+  namespace: participant-17
+spec:
+  selector:
+    app: adult-income-api
+  ports:
+    - port: 8000
+      targetPort: 8000
