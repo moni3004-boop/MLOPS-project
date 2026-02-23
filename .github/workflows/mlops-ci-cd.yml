@@ -1,22 +1,44 @@
-name: Deploy to Kubeflow
+name: CI-CD Adult Income
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}
 
 jobs:
-  deploy:
+  ci:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run tests (optional)
+        run: |
+          if [ -d tests ]; then pytest -q; else echo "No tests/ folder, skipping."; fi
+
+  cd:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - name: Install kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.29.0
 
-      - name: Setup kubeconfig
+      - name: Configure kubeconfig
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
         run: |
@@ -24,11 +46,11 @@ jobs:
           echo "$KUBECONFIG_B64" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
-      - name: Test connection
+      - name: Verify access (namespace-scoped)
         run: |
           kubectl -n participant-17 get pods
 
-      - name: Deploy with Kustomize
+      - name: Deploy API (kustomize)
         run: |
-          kubectl -n participant-17 apply -k manifests/base
-          kubectl -n participant-17 rollout status deployment/adult-income-api --timeout=180s
+          kubectl apply -k manifests/base
+          kubectl -n participant-17 rollout status deploy/adult-income-api --timeout=180s
