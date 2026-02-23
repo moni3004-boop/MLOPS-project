@@ -180,7 +180,7 @@ MLflow is integrated to log:
 
 This enables model comparison and reproducibility.
 
-![MLflow UI](docs/images/mlflow-ui.png)
+![MLflow UI](docs/images/mlow-ui.png)
 
 ---
 
