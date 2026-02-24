@@ -4,7 +4,7 @@ metadata:
   labels:
     app: adult-income-api
   name: adult-income-api
-  namespace: mlops-adult-income
+  namespace: participant-17
 spec:
   ports:
   - name: http
@@ -20,7 +20,7 @@ metadata:
   labels:
     app: adult-income-api
   name: adult-income-api
-  namespace: mlops-adult-income
+  namespace: participant-17
 spec:
   replicas: 1
   selector:

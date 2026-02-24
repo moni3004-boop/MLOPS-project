@@ -224,11 +224,51 @@ pipeline/kfp_pipeline.py
 
 ### Hyperparameter Tuning (Katib - Experimental)
 
-A Katib experiment configuration is included to demonstrate
-how hyperparameter tuning can be integrated in a Kubernetes-native workflow.
+## Overview
 
-Note: Due to environment limitations, tuning execution may require
-additional cluster configuration.
+This project integrates **Kubeflow Katib** for automated hyperparameter optimization inside Kubernetes.
+
+Katib creates trial Kubernetes Jobs and automatically injects a **File Metrics Collector** container into each trial pod.
+
+The training container writes evaluation metrics in **TEXT format** to:
+/mnt/katib/metrics
+
+
+Katib reads these metrics and optimizes the objective function.
+
+---
+
+## Objective Configuration
+
+- **Objective metric:** `val_log_loss_best`
+- **Optimization goal:** Minimize
+- **Additional metrics:**
+  - `val_accuracy`
+  - `val_f1`
+  - `test_accuracy`
+  - `test_f1`
+- **Metrics collector type:** File
+- **Metrics format:** TEXT
+
+---
+
+## Trial Pod Architecture
+
+Each trial pod contains two containers:
+
+1. `training-container`
+2. `metrics-logger-and-collector` (automatically injected by Katib)
+
+The training container generates model metrics, while the collector parses and forwards them to Katib for optimization.
+
+---
+
+## Metrics Format Example
+
+Example content of `/mnt/katib/metrics`:
+![Katib](docs/images/final_katib_success.png)
+![Katib Log](docs/images/katib_success_log.png)
+
 
 ---
 
