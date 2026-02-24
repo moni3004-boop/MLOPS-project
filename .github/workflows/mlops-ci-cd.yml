@@ -73,58 +73,70 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Upload pipeline to Kubeflow Pipelines (Cookie auth)
+      - name: Upload pipeline to Kubeflow Pipelines (Cookie + Namespace header)
         env:
+          # ✅ ОВА СТАВИ ГО ВО SECRET KFP_HOST:
+          # https://kubeflow-mlops-training.scalefocus.cloud
           KFP_HOST: ${{ secrets.KFP_HOST }}
+
+          # ✅ ОВА СТАВИ ГО ВО SECRET KFP_COOKIE:
+          # authservice_session=...
           KFP_COOKIE: ${{ secrets.KFP_COOKIE }}
-          PIPELINE_NAME: "adult-income-end2end"
-          # Ако си во multi-user Kubeflow, некогаш треба namespace:
-          # KFP_NAMESPACE: "participant-17"
+
+          # твојот namespace
+          KFP_NAMESPACE: participant-17
+
+          PIPELINE_NAME: adult-income-end2end
         run: |
           python -m pip install --upgrade pip
-          pip install kfp==2.*
+          pip install requests
 
-          python - << 'PY'
-          import os
-          from kfp import Client
+          python - <<'PY'
+          import os, sys, requests
 
-          host = os.environ["KFP_HOST"].rstrip("/")
-          cookie = os.environ.get("KFP_COOKIE", "").strip()
-          pipeline_path = "./pipeline/adult_income_end2end.yaml"
-          pipeline_name = os.environ.get("PIPELINE_NAME", "adult-income-end2end")
-          namespace = os.environ.get("KFP_NAMESPACE")  # optional
+          base = os.environ["KFP_HOST"].rstrip("/")
+          cookie = os.environ["KFP_COOKIE"].strip()
+          ns = os.environ["KFP_NAMESPACE"].strip()
+          name = os.environ["PIPELINE_NAME"].strip()
 
-          if not cookie:
-              raise SystemExit("❌ Missing KFP_COOKIE secret (example: authservice_session=...)")
+          file_path = "./pipeline/adult_income_end2end.yaml"
 
-          print("Connecting to:", host)
+          # ✅ KFP upload endpoint behind Kubeflow multi-user path
+          upload_url = f"{base}/_/pipeline/apis/v1beta1/pipelines/upload"
 
-          # ✅ Official way in KFP 2.x
-          client = Client(host=host, cookies=cookie)
+          headers = {
+              "Cookie": cookie,
+              "X-User-Namespace": ns,
+          }
 
-          try:
-              p = client.upload_pipeline(
-                  pipeline_package_path=pipeline_path,
-                  pipeline_name=pipeline_name,
-                  namespace=namespace
-              )
-              print("✅ Uploaded new pipeline:", getattr(p, "pipeline_id", p))
-          except Exception as e:
-              print("upload_pipeline failed, trying upload_pipeline_version. Reason:", e)
+          # quick auth probe (must be JSON or plain ok, not HTML)
+          probe_url = f"{base}/_/pipeline/apis/v1beta1/healthz"
+          pr = requests.get(probe_url, headers=headers, timeout=15)
+          pct = (pr.headers.get("content-type") or "").lower()
+          print("Probe:", probe_url, "->", pr.status_code, pct)
+          if "text/html" in pct:
+              print("❌ Still getting HTML (Dex). Cookie is invalid/expired or missing cookies.")
+              print("First200:", pr.text[:200].replace("\n"," "))
+              sys.exit(2)
 
-              pipelines = client.list_pipelines(page_size=200).pipelines or []
-              match = next((p for p in pipelines if p.name == pipeline_name), None)
-              if not match:
-                  raise
+          with open(file_path, "rb") as f:
+              files = {"uploadfile": (os.path.basename(file_path), f, "application/yaml")}
+              data = {"name": name, "description": "Uploaded from GitHub Actions"}
+              r = requests.post(upload_url, headers=headers, files=files, data=data, timeout=120)
 
-              version_name = "main-" + os.environ.get("GITHUB_SHA", "")[:7]
-              v = client.upload_pipeline_version(
-                  pipeline_package_path=pipeline_path,
-                  pipeline_version_name=version_name,
-                  pipeline_id=match.pipeline_id
-              )
-              print("✅ Uploaded pipeline version:", getattr(v, "pipeline_version_id", v))
+          ct = (r.headers.get("content-type") or "").lower()
+          print("POST:", upload_url)
+          print("Status:", r.status_code, "Content-Type:", ct)
+
+          if "text/html" in ct:
+              print("❌ Got HTML (Dex). Cookie not accepted.")
+              print("First200:", r.text[:200].replace("\n"," "))
+              sys.exit(3)
+
+          if r.status_code >= 400:
+              print("❌ Upload failed:", r.text[:800])
+              sys.exit(4)
+
+          print("✅ Upload OK. Response (first 800):")
+          print(r.text[:800])
           PY
-
-
-          
