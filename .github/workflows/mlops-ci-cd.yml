@@ -28,15 +28,21 @@ jobs:
 
       - name: Compile pipeline
         run: |
+          set -e
           mkdir -p pipeline
-          if [ -f adult_income_end2end_pipeline.py ]; then
-            python adult_income_end2end_pipeline.py
-          elif [ -f pipeline/kfp_pipeline.py ]; then
-            python pipeline/kfp_pipeline.py
-          else
-            echo "No pipeline compile script found"
-            exit 1
-          fi
+
+          # ✅ Always compile the script you actually edit
+          python pipeline/adult_income_end2end_pipeline.py
+
+          echo "KFP_VERSION:"
+          python -c "import kfp; print(kfp.__version__)"
+
+          echo "YAML sdkVersion:"
+          grep -n "sdkVersion:" pipeline/adult_income_end2end.yaml || true
+
+          echo "Check Model type:"
+          grep -n "schemaTitle: system.Model" pipeline/adult_income_end2end.yaml || true
+
           ls -la pipeline
           test -f pipeline/adult_income_end2end.yaml
 
