@@ -335,7 +335,7 @@ The use of Kustomize allows deployment across different Kubernetes environments 
 GitHub Actions pipeline:
 
 ```
-.github/workflows/mlops.yml
+.github/workflows/mlops-ci-cd.yml
 ```
 
 CI workflow includes:
@@ -345,7 +345,7 @@ CI workflow includes:
 - Docker image build  
 - Artifact packaging  
 
-### CI Execution
+### CI/CD Execution
 
 ![CI Run](docs/images/cd-cd.png)
 
