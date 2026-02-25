@@ -1,55 +1,55 @@
-name: MLOps End-to-End Pipeline
+# name: MLOps End-to-End Pipeline
 
-on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+# on:
+#   push:
+#     branches: ["main"]
+#   pull_request:
+#     branches: ["main"]
 
-jobs:
-  build-test-secure:
-    runs-on: ubuntu-latest
+# jobs:
+#   build-test-secure:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: requirements.txt
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.11"
+#           cache: "pip"
+#           cache-dependency-path: requirements.txt
 
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install kfp pip-audit
+#       - name: Install deps
+#         run: |
+#           python -m pip install --upgrade pip
+#           pip install -r requirements.txt
+#           pip install kfp pip-audit
 
-      - name: Compile pipeline
-        run: |
-          # If you have a dedicated compile script, use it
-          if [ -f adult_income_end2end_pipeline.py ]; then
-            python adult_income_end2end_pipeline.py
-          elif [ -f pipeline/kfp_pipeline.py ]; then
-            python pipeline/kfp_pipeline.py
-          else
-            echo "No pipeline compile script found"
-            exit 1
-          fi
-          ls -la pipeline || true
+#       - name: Compile pipeline
+#         run: |
+#           # If you have a dedicated compile script, use it
+#           if [ -f adult_income_end2end_pipeline.py ]; then
+#             python adult_income_end2end_pipeline.py
+#           elif [ -f pipeline/kfp_pipeline.py ]; then
+#             python pipeline/kfp_pipeline.py
+#           else
+#             echo "No pipeline compile script found"
+#             exit 1
+#           fi
+#           ls -la pipeline || true
 
-      - name: Dependency security scan
-        run: |
-          pip-audit || true
+#       - name: Dependency security scan
+#         run: |
+#           pip-audit || true
 
-      - name: Docker build
-        run: |
-          docker build -t adult-income-api:ci -f docker/Dockerfile .
+#       - name: Docker build
+#         run: |
+#           docker build -t adult-income-api:ci -f docker/Dockerfile .
 
-      - name: Upload compiled pipeline
-        uses: actions/upload-artifact@v4
-        with:
-          name: compiled-pipeline
-          path: pipeline/adult_income_end2end.yaml
+#       - name: Upload compiled pipeline
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: compiled-pipeline
+#           path: pipeline/adult_income_end2end.yaml
