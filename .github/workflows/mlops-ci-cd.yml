@@ -72,10 +72,10 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Verify Python is available
-        run: |
-          python --version
-          pip --version
+      # - name: Verify Python is available
+      #   run: |
+      #     python --version
+      #     pip --version
 
       - name: Install runtime dependencies
         run: |
