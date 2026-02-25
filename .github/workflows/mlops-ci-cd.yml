@@ -66,134 +66,67 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Upload pipeline + create/get experiment + trigger run (curl, multi-user)
+      - name: Probe KFP API (curl)
         env:
           KFP_HOST: ${{ secrets.KFP_HOST }}
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
           KFP_NAMESPACE: participant-17
-          EXPERIMENT_NAME: ci-experiment
         run: |
-          set -euo pipefail
-
-          SRC_FILE="./pipeline/adult_income_end2end.yaml"
-          UNIQUE_FILE="./pipeline/adult-income-end2end-${GITHUB_SHA::7}.yaml"
-          cp "$SRC_FILE" "$UNIQUE_FILE"
-
+          set -e
           echo "KFP_HOST=$KFP_HOST"
-          echo "Namespace=$KFP_NAMESPACE"
-          echo "Experiment=$EXPERIMENT_NAME"
-          echo "UploadFile=$UNIQUE_FILE"
-
-          # 0) Probe
           curl -sS -D /tmp/hdrs.txt -o /tmp/body.txt \
             -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
             -H "X-User-Namespace: $KFP_NAMESPACE" \
-            "$KFP_HOST/apis/v1beta1/healthz"
+            "$KFP_HOST/apis/v1beta1/healthz" || true
 
+          echo "=== headers ==="
+          cat /tmp/hdrs.txt || true
+          echo "=== body ==="
+          head -c 300 /tmp/body.txt || true
+          echo
+
+          # Fail if HTML/Dex
           if grep -qi "text/html" /tmp/hdrs.txt; then
-            echo "❌ Got HTML (Dex). KFP_HOST must be in-cluster ml-pipeline service."
-            head -c 300 /tmp/body.txt || true
+            echo "❌ Got HTML (Dex) from healthz. KFP_HOST is wrong (must be in-cluster ml-pipeline)."
             exit 2
           fi
-          echo "✅ healthz ok: $(cat /tmp/body.txt)"
 
-          # 1) Upload pipeline (name is derived from file name)
+      - name: Upload pipeline to KFP (curl multipart)
+        env:
+          KFP_HOST: ${{ secrets.KFP_HOST }}          # http://ml-pipeline.kubeflow:8888
+          KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
+          KFP_NAMESPACE: participant-17
+          PIPELINE_NAME: adult-income-end2end
+        run: |
+          set -e
+          FILE="./pipeline/adult_income_end2end.yaml"
+
+          echo "Uploading $FILE to $KFP_HOST ..."
+          # v1beta1 upload endpoint
           curl -sS -D /tmp/up_hdrs.txt -o /tmp/up_body.txt \
             -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
             -H "X-User-Namespace: $KFP_NAMESPACE" \
-            -F "uploadfile=@${UNIQUE_FILE};type=application/yaml" \
-            "$KFP_HOST/apis/v1beta1/pipelines/upload"
+            -F "uploadfile=@${FILE};type=application/yaml" \
+            -F "name=${PIPELINE_NAME}" \
+            -F "description=Uploaded from GitHub Actions" \
+            "$KFP_HOST/apis/v1beta1/pipelines/upload" || true
 
-          if ! grep -Eq "HTTP/.* (200|201)" /tmp/up_hdrs.txt; then
-            echo "❌ Upload failed:"
-            cat /tmp/up_hdrs.txt || true
-            head -c 900 /tmp/up_body.txt || true
+          echo "=== upload headers ==="
+          cat /tmp/up_hdrs.txt || true
+          echo "=== upload body (first 600 chars) ==="
+          head -c 600 /tmp/up_body.txt || true
+          echo
+
+          # Fail on HTML/Dex
+          if grep -qi "text/html" /tmp/up_hdrs.txt; then
+            echo "❌ Got HTML (Dex) on upload. Check KFP_HOST/token."
             exit 3
           fi
 
-          echo "Upload response:"
-          cat /tmp/up_body.txt
-
-          PIPELINE_ID=$(cat /tmp/up_body.txt | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
-          if [ -z "${PIPELINE_ID:-}" ]; then
-            echo "❌ Could not parse pipeline id"
+          # Require HTTP 200/201
+          if ! grep -Eq "HTTP/.* (200|201)" /tmp/up_hdrs.txt; then
+            echo "❌ Upload failed (not 200/201)."
             exit 4
           fi
-          echo "✅ PIPELINE_ID=$PIPELINE_ID"
 
-          # 2) Find experiment by name in this namespace
-          curl -sS -o /tmp/exp_list.json \
-            -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
-            -H "X-User-Namespace: $KFP_NAMESPACE" \
-            "$KFP_HOST/apis/v1beta1/experiments?page_size=200&namespace=$KFP_NAMESPACE"
-
-          # robust-ish grep/sed extraction: find "...\"name\":\"ci-experiment\"..." then capture nearest "id"
-          EXP_ID=$(
-            tr '\n' ' ' < /tmp/exp_list.json \
-            | sed -n "s/.*\"id\":\"\\([^\"]*\\)\"[^}]*\"name\":\"$EXPERIMENT_NAME\".*/\\1/p" \
-            | head -n 1
-          )
-
-          if [ -z "${EXP_ID:-}" ]; then
-            echo "Experiment not found -> creating (multi-user requires namespace ref)..."
-            curl -sS -D /tmp/exp_hdrs.txt -o /tmp/exp_create.json \
-              -X POST \
-              -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
-              -H "X-User-Namespace: $KFP_NAMESPACE" \
-              -H "Content-Type: application/json" \
-              "$KFP_HOST/apis/v1beta1/experiments" \
-              -d "{
-                \"name\": \"${EXPERIMENT_NAME}\",
-                \"namespace\": \"${KFP_NAMESPACE}\",
-                \"resource_references\": [
-                  {
-                    \"key\": { \"type\": \"NAMESPACE\", \"id\": \"${KFP_NAMESPACE}\" },
-                    \"relationship\": \"OWNER\"
-                  }
-                ]
-              }"
-
-            echo "Experiment create response:"
-            cat /tmp/exp_create.json
-
-            # Accept 200/201 only
-            if ! grep -Eq "HTTP/.* (200|201)" /tmp/exp_hdrs.txt; then
-              echo "❌ Experiment create failed:"
-              cat /tmp/exp_hdrs.txt || true
-              exit 5
-            fi
-
-            EXP_ID=$(cat /tmp/exp_create.json | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
-          fi
-
-          if [ -z "${EXP_ID:-}" ]; then
-            echo "❌ Could not get/create experiment id"
-            exit 6
-          fi
-          echo "✅ EXPERIMENT_ID=$EXP_ID"
-
-          # 3) Trigger run
-          RUN_NAME="ci-run-${GITHUB_SHA::7}-$(date +%s)"
-          echo "== Trigger run: $RUN_NAME =="
-
-          curl -sS -D /tmp/run_hdrs.txt -o /tmp/run_body.txt \
-            -X POST \
-            -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
-            -H "X-User-Namespace: $KFP_NAMESPACE" \
-            -H "Content-Type: application/json" \
-            "$KFP_HOST/apis/v1beta1/runs" \
-            -d "{
-              \"name\": \"${RUN_NAME}\",
-              \"experiment_id\": \"${EXP_ID}\",
-              \"pipeline_spec\": { \"pipeline_id\": \"${PIPELINE_ID}\" }
-            }"
-
-          if ! grep -Eq "HTTP/.* (200|201)" /tmp/run_hdrs.txt; then
-            echo "❌ Run create failed:"
-            cat /tmp/run_hdrs.txt || true
-            head -c 900 /tmp/run_body.txt || true
-            exit 7
-          fi
-
-          echo "✅ Run created:"
-          cat /tmp/run_body.txt
+          echo "✅ Pipeline uploaded successfully"
