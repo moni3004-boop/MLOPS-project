@@ -55,15 +55,17 @@ jobs:
           path: pipeline/adult_income_end2end.yaml
           if-no-files-found: error
 
+
   cd-upload-kubeflow:
     needs: build-test-secure
     if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, kfp, participant-17]
 
-    steps:
-      - name: Checkout (optional)
-        uses: actions/checkout@v4
+    # 🔥 ОВА ГО РЕШАВА python: command not found
+    container:
+      image: python:3.11-slim
 
+    steps:
       - name: Download compiled pipeline artifact
         uses: actions/download-artifact@v4
         with:
@@ -75,55 +77,59 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Upload pipeline to Kubeflow Pipelines (Bearer token)
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "kfp==2.*" requests
+
+      - name: Upload pipeline to Kubeflow Pipelines
         env:
           KFP_HOST: ${{ secrets.KFP_HOST }}
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
           KFP_NAMESPACE: participant-17
           PIPELINE_NAME: adult-income-end2end
         run: |
-          python -m pip install --upgrade pip
-          pip install "kfp==2.*" requests
-
           python - <<'PY'
           import os, sys, requests
-          host = os.environ["KFP_HOST"].rstrip("/")
-          token = os.environ["KFP_BEARER_TOKEN"].strip()
-          ns = os.environ["KFP_NAMESPACE"].strip()
-
-          probe_urls = [
-              f"{host}/_/pipeline/apis/v1beta1/healthz",
-              f"{host}/_/pipeline/apis/v1beta1/swagger.json",
-          ]
-
-          headers = {"Authorization": f"Bearer {token}", "X-User-Namespace": ns}
-
-          for url in probe_urls:
-              r = requests.get(url, headers=headers, timeout=20)
-              ct = (r.headers.get("content-type") or "").lower()
-              print("Probe:", url, "->", r.status_code, ct)
-              if "text/html" in ct:
-                  print("❌ Got HTML (Dex/login). Token not accepted or wrong host.")
-                  print("First200:", r.text[:200].replace("\n"," "))
-                  sys.exit(2)
-              if r.status_code >= 400:
-                  print("❌ Probe failed:", r.text[:200].replace("\n"," "))
-                  sys.exit(3)
-
-          print("✅ Probes look good.")
-          PY
-
-          python - <<'PY'
-          import os
           from kfp import Client
 
           host = os.environ["KFP_HOST"].rstrip("/")
           token = os.environ["KFP_BEARER_TOKEN"].strip()
           namespace = os.environ.get("KFP_NAMESPACE")
           pipeline_path = "./pipeline/adult_income_end2end.yaml"
-          pipeline_name = os.environ.get("PIPELINE_NAME", "adult-income-end2end")
+          pipeline_name = os.environ.get("PIPELINE_NAME")
 
-          client = Client(host=f"{host}/_/pipeline", existing_token=token)
+          print("🔎 Probing KFP API...")
+
+          probe_urls = [
+              f"{host}/_/pipeline/apis/v1beta1/healthz",
+              f"{host}/_/pipeline/apis/v1beta1/swagger.json",
+          ]
+
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "X-User-Namespace": namespace,
+          }
+
+          for url in probe_urls:
+              r = requests.get(url, headers=headers, timeout=20)
+              ct = (r.headers.get("content-type") or "").lower()
+              print("Probe:", url, "->", r.status_code, ct)
+
+              if "text/html" in ct:
+                  print("❌ Got HTML (Dex/login). Wrong token or host.")
+                  sys.exit(2)
+
+              if r.status_code >= 400:
+                  print("❌ Probe failed:", r.text[:200])
+                  sys.exit(3)
+
+          print("✅ Probes successful. Uploading pipeline...")
+
+          client = Client(
+              host=f"{host}/_/pipeline",
+              existing_token=token
+          )
 
           try:
               p = client.upload_pipeline(
@@ -132,19 +138,27 @@ jobs:
                   namespace=namespace
               )
               print("✅ Uploaded new pipeline:", getattr(p, "pipeline_id", p))
-          except Exception as e:
-              print("upload_pipeline failed, trying version upload:", e)
 
-              pipelines = client.list_pipelines(page_size=200, namespace=namespace).pipelines or []
+          except Exception as e:
+              print("⚠️ upload_pipeline failed, trying version upload:", e)
+
+              pipelines = client.list_pipelines(
+                  page_size=200,
+                  namespace=namespace
+              ).pipelines or []
+
               match = next((p for p in pipelines if p.name == pipeline_name), None)
+
               if not match:
                   raise
 
               version_name = "main-" + os.environ.get("GITHUB_SHA","")[:7]
+
               v = client.upload_pipeline_version(
                   pipeline_package_path=pipeline_path,
                   pipeline_version_name=version_name,
                   pipeline_id=match.pipeline_id
               )
+
               print("✅ Uploaded pipeline version:", getattr(v, "pipeline_version_id", v))
           PY
