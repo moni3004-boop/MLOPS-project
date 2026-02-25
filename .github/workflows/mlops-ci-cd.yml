@@ -68,21 +68,24 @@ jobs:
 
       - name: Upload pipeline + create/get experiment + trigger run (curl)
         env:
-          KFP_HOST: ${{ secrets.KFP_HOST }}                 # e.g. http://ml-pipeline.kubeflow:8888
+          KFP_HOST: ${{ secrets.KFP_HOST }}
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
           KFP_NAMESPACE: participant-17
-          PIPELINE_NAME: adult-income-end2end
           EXPERIMENT_NAME: ci-experiment
         run: |
           set -euo pipefail
 
           FILE="./pipeline/adult_income_end2end.yaml"
+
+          # ✅ Unique pipeline name every push (avoids "already exists")
+          PIPELINE_NAME="adult-income-end2end-${GITHUB_SHA::7}"
+
           echo "KFP_HOST=$KFP_HOST"
           echo "Namespace=$KFP_NAMESPACE"
           echo "Experiment=$EXPERIMENT_NAME"
+          echo "PipelineName=$PIPELINE_NAME"
 
           # 0) Probe
-          echo "== Probe healthz =="
           curl -sS -D /tmp/hdrs.txt -o /tmp/body.txt \
             -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
             -H "X-User-Namespace: $KFP_NAMESPACE" \
@@ -95,27 +98,25 @@ jobs:
           fi
           echo "✅ healthz ok: $(cat /tmp/body.txt)"
 
-          # 1) Upload pipeline
-          echo "== Upload pipeline =="
+          # 1) Upload pipeline (new name every time)
           curl -sS -D /tmp/up_hdrs.txt -o /tmp/up_body.txt \
             -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
             -H "X-User-Namespace: $KFP_NAMESPACE" \
             -F "uploadfile=@${FILE};type=application/yaml" \
             -F "name=${PIPELINE_NAME}" \
-            -F "description=Uploaded from GitHub Actions" \
+            -F "description=Uploaded from GitHub Actions ${GITHUB_SHA::7}" \
             "$KFP_HOST/apis/v1beta1/pipelines/upload"
 
           if ! grep -Eq "HTTP/.* (200|201)" /tmp/up_hdrs.txt; then
             echo "❌ Upload failed:"
             cat /tmp/up_hdrs.txt || true
-            head -c 800 /tmp/up_body.txt || true
+            head -c 900 /tmp/up_body.txt || true
             exit 3
           fi
 
           echo "Upload response:"
           cat /tmp/up_body.txt
 
-          # Extract pipeline_id from JSON (no jq, pure sed)
           PIPELINE_ID=$(cat /tmp/up_body.txt | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
           if [ -z "${PIPELINE_ID:-}" ]; then
             echo "❌ Could not parse pipeline id from upload response"
@@ -123,14 +124,12 @@ jobs:
           fi
           echo "✅ PIPELINE_ID=$PIPELINE_ID"
 
-          # 2) Get experiment id if exists
-          echo "== Find experiment =="
+          # 2) Find or create experiment
           curl -sS -o /tmp/exp_list.json \
             -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
             -H "X-User-Namespace: $KFP_NAMESPACE" \
             "$KFP_HOST/apis/v1beta1/experiments?page_size=200&namespace=$KFP_NAMESPACE"
 
-          # Find experiment id by name (sed)
           EXP_ID=$(cat /tmp/exp_list.json | tr '\n' ' ' | sed -n "s/.*\"id\":\"\\([^\"]*\\)\",\"name\":\"$EXPERIMENT_NAME\".*/\\1/p" | head -n 1)
 
           if [ -z "${EXP_ID:-}" ]; then
