@@ -6,9 +6,6 @@
 #    train_epochs: int [Default: 20.0]
 #    trials: int [Default: 10.0]
 #    tune_epochs: int [Default: 5.0]
-# Outputs:
-#    train-eval-torch-op-metrics_out: system.Metrics
-#    tune-op-tuning_metrics: system.Metrics
 components:
   comp-preprocess-op:
     executorLabel: exec-preprocess-op
@@ -118,10 +115,10 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
-          \ 'scikit-learn==1.4.2' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
+          \ 'scikit-learn==1.4.2' 'joblib==1.4.2'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -188,10 +185,10 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
-          \ 'scikit-learn==1.4.2' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
+          \ 'scikit-learn==1.4.2' 'joblib==1.4.2'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -278,10 +275,10 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
-          \ 'scikit-learn==1.4.2' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
+          \ 'scikit-learn==1.4.2' 'joblib==1.4.2'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -344,16 +341,6 @@ pipelineInfo:
   name: adult-income-end2end
 root:
   dag:
-    outputs:
-      artifacts:
-        train-eval-torch-op-metrics_out:
-          artifactSelectors:
-          - outputArtifactKey: metrics_out
-            producerSubtask: train-eval-torch-op
-        tune-op-tuning_metrics:
-          artifactSelectors:
-          - outputArtifactKey: tuning_metrics
-            producerSubtask: tune-op
     tasks:
       preprocess-op:
         cachingOptions:
@@ -437,15 +424,5 @@ root:
         defaultValue: 5.0
         isOptional: true
         parameterType: NUMBER_INTEGER
-  outputDefinitions:
-    artifacts:
-      train-eval-torch-op-metrics_out:
-        artifactType:
-          schemaTitle: system.Metrics
-          schemaVersion: 0.0.1
-      tune-op-tuning_metrics:
-        artifactType:
-          schemaTitle: system.Metrics
-          schemaVersion: 0.0.1
 schemaVersion: 2.1.0
-sdkVersion: kfp-2.4.0
+sdkVersion: kfp-2.15.2
