@@ -9,6 +9,7 @@
 import os
 from kfp import compiler, dsl
 from kfp.dsl import component, Input, Output, Dataset, Model, Metrics, Artifact
+from kfp.dsl.types import artifact_types
 
 BASE_IMAGE = "python:3.11-slim"
 
@@ -290,7 +291,7 @@ def tune_op(
 def train_eval_torch_op(
     dataset: Input[Dataset],
     best_params: Input[Artifact],
-    model: Output[Model],
+    model: Output[artifact_types.Model],
     metrics_out: Output[Metrics],
     epochs: int = 20,
     weight_decay: float = 1e-4,
