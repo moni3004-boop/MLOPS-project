@@ -13,6 +13,6 @@ RUN pip install --no-cache-dir \
     numpy pandas scikit-learn joblib \
     torch --index-url https://download.pytorch.org/whl/cpu \
     mlflow \
-    kfp==2.4.0
+    kfp==2.6.0
 
 WORKDIR /app
