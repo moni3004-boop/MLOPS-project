@@ -251,7 +251,7 @@ def tune_op(
         # Trial log (human friendly)
         print(
             f"trial={t}/{trials} lr={lr} hidden={hidden} drop={dropout} bs={batch_size} "
-            f"val_accuracy={val_acc:.6f} val_f1={val_f1:.6f} val_log_loss={val_ll:.6f}"
+            f"val_accuracy={val_acc} val_f1={val_f1} val_log_loss={val_ll}"
         )
 
         if val_f1 > best_score:
@@ -278,9 +278,9 @@ def tune_op(
     tuning_metrics.log_metric("best_val_log_loss", float(best["val_log_loss"]))
 
     # ALSO print in Katib-friendly "name=value" format (easy regex)
-    print(f"best_val_accuracy={float(best['val_accuracy']):.6f}")
-    print(f"best_val_f1={float(best['val_f1']):.6f}")
-    print(f"best_val_log_loss={float(best['val_log_loss']):.6f}")
+    print(f"best_val_accuracy={float(best['val_accuracy'])}")
+    print(f"best_val_f1={float(best['val_f1'])}")
+    print(f"best_val_log_loss={float(best['val_log_loss'])}")
 
 
 @component(
@@ -441,12 +441,12 @@ def train_eval_torch_op(
     metrics_out.log_metric("test_accuracy", float(test_acc))
     metrics_out.log_metric("test_f1", float(test_f1))
 
-    # ALSO print for Katib metrics collector (StdOut)
-    print(f"val_log_loss_best={float(best_val_loss):.6f}")
-    print(f"val_accuracy={float(last_val_acc):.6f}")
-    print(f"val_f1={float(last_val_f1):.6f}")
-    print(f"test_accuracy={float(test_acc):.6f}")
-    print(f"test_f1={float(test_f1):.6f}")
+    # StdOut metrics for Katib (исти имиња како во metricsFormat)
+    print(f"val_log_loss_best={float(best_val_loss)}")
+    print(f"val_accuracy={float(last_val_acc)}")
+    print(f"val_f1={float(last_val_f1)}")
+    print(f"test_accuracy={float(test_acc)}")
+    print(f"test_f1={float(test_f1)}")
 
     # Save TorchScript
     os.makedirs(model.path, exist_ok=True)
@@ -522,7 +522,7 @@ def monitor_and_maybe_retrain_op(
         json.dump(out, f, indent=2)
 
     # Optional stdout line (if you ever want to regex it too)
-    print(f"monitor_test_accuracy={test_acc:.6f}")
+    print(f"monitor_test_accuracy={float(test_acc)}")
     print(f"monitor_retrain={(1 if test_acc < min_test_accuracy else 0)}")
 
 
@@ -642,8 +642,8 @@ def retrain_op(
 
     # stdout (optional)
     print("retrain_triggered=1")
-    print(f"retrain_test_accuracy={test_acc:.6f}")
-    print(f"retrain_test_f1={test_f1:.6f}")
+    print(f"retrain_test_accuracy={float(test_acc)}")
+    print(f"retrain_test_f1={float(test_f1)}")
 
     os.makedirs(retrained_model.path, exist_ok=True)
     example = torch.zeros((1, in_dim), dtype=torch.float32).to(device)
@@ -686,7 +686,7 @@ def adult_income_end2end_pipeline(
         seed=random_state,
     )
 
-    serving = build_serving_manifest_op(image=serving_image)
+    build_serving_manifest_op(image=serving_image)
 
     mon = monitor_and_maybe_retrain_op(
         metrics=train.outputs["metrics_out"],
