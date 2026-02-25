@@ -72,25 +72,22 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Runner identity (debug)
-        run: |
-          echo "whoami: $(whoami)"
-          id || true
-          uname -a || true
-
-      - name: Install Python + pip on self-hosted runner
+      - name: Install Python + venv (self-hosted)
         shell: bash
         run: |
           set -e
+          echo "whoami: $(whoami)"
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends python3 python3-pip ca-certificates
+          sudo apt-get install -y --no-install-recommends python3 python3-venv python3-pip ca-certificates
           python3 --version
-          python3 -m pip --version
-          sudo ln -sf /usr/bin/python3 /usr/local/bin/python
-          python --version
 
-      - name: Install runtime dependencies
+      - name: Create venv and install deps (no PEP668 issues)
+        shell: bash
         run: |
+          set -e
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python --version
           python -m pip install --upgrade pip
           pip install "kfp==2.*" requests
 
@@ -100,7 +97,11 @@ jobs:
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
           KFP_NAMESPACE: participant-17
           PIPELINE_NAME: adult-income-end2end
+        shell: bash
         run: |
+          set -e
+          . .venv/bin/activate
+
           python - <<'PY'
           import os, sys, requests
           from kfp import Client
