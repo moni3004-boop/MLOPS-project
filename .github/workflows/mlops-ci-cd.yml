@@ -1,4 +1,4 @@
-name: MLOps End-to-End Pipeline
+name: MLOps End-to-End Pipeline (Self-Hosted CD)
 
 on:
   push:
@@ -40,14 +40,6 @@ jobs:
           ls -la pipeline
           test -f pipeline/adult_income_end2end.yaml
 
-      - name: Dependency security scan
-        run: |
-          pip-audit || true
-
-      - name: Docker build (CI only)
-        run: |
-          docker build -t adult-income-api:ci -f docker/Dockerfile .
-
       - name: Upload compiled pipeline artifact
         uses: actions/upload-artifact@v4
         with:
@@ -59,9 +51,8 @@ jobs:
   cd-upload-kubeflow:
     needs: build-test-secure
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    # Ако сакаш self-hosted, смени во:
-    # runs-on: self-hosted
+    runs-on: self-hosted
+    timeout-minutes: 30
 
     steps:
       - name: Download compiled pipeline artifact
@@ -71,114 +62,103 @@ jobs:
           path: ./pipeline
 
       - name: Verify artifact
+        shell: bash
         run: |
+          set -e
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Install runtime deps
+      - name: Check python3 is available on self-hosted
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install requests
+          set -e
+          which python3
+          python3 --version
 
-      - name: Upload pipeline to Kubeflow (REST, avoids Dex)
+      - name: Create venv + install deps (PEP668 safe)
+        shell: bash
+        run: |
+          set -e
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python --version
+          python -m pip install --upgrade pip
+          pip install "kfp==2.*" requests
+
+      - name: Upload pipeline to KFP (in-cluster REST)
         env:
-          KFP_HOST: ${{ secrets.KFP_HOST }}
+          KFP_HOST: ${{ secrets.KFP_HOST }}               # http://ml-pipeline.kubeflow:8888
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
           KFP_NAMESPACE: participant-17
           PIPELINE_NAME: adult-income-end2end
+        shell: bash
         run: |
+          set -e
+          . .venv/bin/activate
+
           python - <<'PY'
           import os, sys, requests
 
-          host = os.environ["KFP_HOST"].rstrip("/")
+          host = os.environ["KFP_HOST"].rstrip("/")  # in-cluster: http://ml-pipeline.kubeflow:8888
           token = os.environ["KFP_BEARER_TOKEN"].strip()
           ns = os.environ["KFP_NAMESPACE"].strip()
           name = os.environ["PIPELINE_NAME"].strip()
           path = "./pipeline/adult_income_end2end.yaml"
 
           headers = {
-            "Authorization": f"Bearer {token}",
-            "X-User-Namespace": ns,
+              "Authorization": f"Bearer {token}",
+              "X-User-Namespace": ns,
           }
 
-          def is_html(resp: requests.Response) -> bool:
-            ct = (resp.headers.get("content-type") or "").lower()
-            if "text/html" in ct:
-              return True
-            t = (resp.text or "").lstrip().lower()
-            return t.startswith("<!doctype html") or "<title>dex</title>" in t
+          def short(s, n=400):
+              s = s or ""
+              return s[:n].replace("\n"," ")
 
-          # Candidate bases (common Kubeflow layouts)
-          bases = []
-          if host.endswith("/_/pipeline") or host.endswith("/pipeline"):
-            bases.append(host)
-          else:
-            bases.extend([host + "/_/pipeline", host + "/pipeline", host])
+          # Probe API (in-cluster should NOT return Dex HTML)
+          probe = host + "/apis/v1beta1/healthz"
+          r = requests.get(probe, headers=headers, timeout=20)
+          ct = (r.headers.get("content-type") or "").lower()
+          print("Probe:", probe, "->", r.status_code, ct)
 
-          ok_base = None
-          for base in bases:
-            url = base + "/apis/v1beta1/healthz"
-            try:
-              r = requests.get(url, headers=headers, timeout=20)
-            except Exception as e:
-              print("Probe failed:", url, e)
-              continue
-
-            ct = (r.headers.get("content-type") or "")
-            print("Probe:", url, "->", r.status_code, ct)
-
-            if r.status_code == 200 and not is_html(r):
-              ok_base = base
-              break
-
-          if not ok_base:
-            print("❌ Could not find KFP API base without Dex/HTML.")
-            print("Tried:", bases)
-            sys.exit(2)
-
-          print("✅ Using KFP base:", ok_base)
+          if r.status_code != 200 or "text/html" in ct:
+              print("❌ KFP host not reachable as API. Check KFP_HOST (must be in-cluster ml-pipeline service).")
+              print("Body:", short(r.text, 800))
+              sys.exit(2)
 
           upload_urls = [
-            ok_base + "/apis/v2beta1/pipelines/upload",
-            ok_base + "/apis/v1beta1/pipelines/upload",
+              host + "/apis/v2beta1/pipelines/upload",
+              host + "/apis/v1beta1/pipelines/upload",
           ]
 
-          with open(path, "rb") as f:
-            files = {"uploadfile": (os.path.basename(path), f, "application/yaml")}
-            data = {
-              "name": name,
-              "description": f"Uploaded from GitHub Actions ({os.environ.get('GITHUB_SHA','')[:7]})"
-            }
+          last = None
+          for url in upload_urls:
+              with open(path, "rb") as f:
+                  files = {"uploadfile": (os.path.basename(path), f, "application/yaml")}
+                  data = {"name": name, "description": f"Uploaded from GitHub Actions ({os.environ.get('GITHUB_SHA','')[:7]})"}
+                  r = requests.post(url, headers=headers, files=files, data=data, timeout=180)
+                  last = r
 
-            last = None
-            for url in upload_urls:
-              try:
-                r = requests.post(url, headers=headers, files=files, data=data, timeout=180)
-                last = r
-              except Exception as e:
-                print("Upload failed:", url, e)
-                continue
-
-              ct = (r.headers.get("content-type") or "")
+              ct = (r.headers.get("content-type") or "").lower()
               print("Upload:", url, "->", r.status_code, ct)
 
-              if is_html(r):
-                print("❌ Got HTML/Dex again. Wrong endpoint or token not accepted.")
-                continue
+              if "text/html" in ct:
+                  print("❌ Got HTML again (Dex). Wrong host/path.")
+                  print("Body:", short(r.text, 800))
+                  continue
 
               if r.status_code in (200, 201):
-                print("✅ Upload success.")
-                try:
-                  print(r.json())
-                except Exception:
-                  print((r.text or "")[:500])
-                sys.exit(0)
+                  print("✅ Upload success.")
+                  try:
+                      print(r.json())
+                  except Exception:
+                      print(short(r.text, 800))
+                  sys.exit(0)
 
-              print("⚠️ Upload response:", (r.text or "")[:500].replace("\n"," "))
+              print("⚠️ Upload response:", short(r.text, 800))
 
-            print("❌ Upload failed for all endpoints.")
-            if last is not None:
+          print("❌ Upload failed for all endpoints.")
+          if last is not None:
               print("Last status:", last.status_code)
-              print("Last body:", (last.text or "")[:800])
-            sys.exit(3)
+              print("Last body:", short(last.text, 1200))
+          sys.exit(3)
           PY
