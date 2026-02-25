@@ -13,6 +13,20 @@ from kfp.dsl import component, Input, Output, Dataset, Model, Metrics, Artifact
 BASE_IMAGE = "python:3.11-slim"
 
 
+def _print_metrics_table(title: str, rows: list[tuple[str, float]]) -> None:
+    """Pretty stdout table + clean name=value lines."""
+    print(f"\n=== {title} ===")
+    print(f"{'metric':<18} | {'value':>12}")
+    print("-" * 33)
+    for k, v in rows:
+        print(f"{k:<18} | {float(v):>12.6f}")
+    print("-" * 33)
+
+    # Clean lines for collectors (Katib StdOut, grep, etc.)
+    for k, v in rows:
+        print(f"{k}={float(v)}")
+
+
 @component(
     base_image=BASE_IMAGE,
     packages_to_install=[
@@ -162,7 +176,8 @@ def tune_op(
     """
     Lightweight random search (Katib-like).
     Writes best_params.json to best_params.path.
-    Logs and prints metrics in a Katib-friendly "name=value" format.
+    Logs tuning metrics to Metrics artifact.
+    Prints a readable table + clean name=value lines.
     """
     import json
     import os
@@ -277,10 +292,15 @@ def tune_op(
     tuning_metrics.log_metric("best_val_f1", float(best["val_f1"]))
     tuning_metrics.log_metric("best_val_log_loss", float(best["val_log_loss"]))
 
-    # ALSO print in Katib-friendly "name=value" format (easy regex)
-    print(f"best_val_accuracy={float(best['val_accuracy'])}")
-    print(f"best_val_f1={float(best['val_f1'])}")
-    print(f"best_val_log_loss={float(best['val_log_loss'])}")
+    # Table + clean lines
+    _print_metrics_table(
+        "TUNING BEST METRICS",
+        [
+            ("best_val_accuracy", float(best["val_accuracy"])),
+            ("best_val_f1", float(best["val_f1"])),
+            ("best_val_log_loss", float(best["val_log_loss"])),
+        ],
+    )
 
 
 @component(
@@ -304,7 +324,7 @@ def train_eval_torch_op(
     """
     Train/eval using best_params.json from tune_op.
     Saves TorchScript model to model.path/model.pt.
-    Logs metrics to Metrics artifact AND prints them as "name=value" for Katib.
+    Logs metrics to Metrics artifact + prints a readable table + clean name=value lines.
     """
     import os
     import json
@@ -441,12 +461,17 @@ def train_eval_torch_op(
     metrics_out.log_metric("test_accuracy", float(test_acc))
     metrics_out.log_metric("test_f1", float(test_f1))
 
-    # StdOut metrics for Katib (исти имиња како во metricsFormat)
-    print(f"val_log_loss_best={float(best_val_loss)}")
-    print(f"val_accuracy={float(last_val_acc)}")
-    print(f"val_f1={float(last_val_f1)}")
-    print(f"test_accuracy={float(test_acc)}")
-    print(f"test_f1={float(test_f1)}")
+    # Table + clean lines
+    _print_metrics_table(
+        "TRAIN/EVAL METRICS",
+        [
+            ("val_log_loss_best", float(best_val_loss)),
+            ("val_accuracy", float(last_val_acc)),
+            ("val_f1", float(last_val_f1)),
+            ("test_accuracy", float(test_acc)),
+            ("test_f1", float(test_f1)),
+        ],
+    )
 
     # Save TorchScript
     os.makedirs(model.path, exist_ok=True)
@@ -521,9 +546,14 @@ def monitor_and_maybe_retrain_op(
     with open(os.path.join(retrain_triggered.path, "monitor.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
 
-    # Optional stdout line (if you ever want to regex it too)
-    print(f"monitor_test_accuracy={float(test_acc)}")
-    print(f"monitor_retrain={(1 if test_acc < min_test_accuracy else 0)}")
+    _print_metrics_table(
+        "MONITOR GATE",
+        [
+            ("monitor_test_accuracy", float(test_acc)),
+            ("monitor_min_test_accuracy", float(min_test_accuracy)),
+            ("monitor_retrain_flag", float(1.0 if test_acc < min_test_accuracy else 0.0)),
+        ],
+    )
 
 
 @component(
@@ -553,10 +583,18 @@ def retrain_op(
     if not bool(mon.get("retrain", False)):
         retrain_metrics.log_metric("retrain_skipped", 1.0)
         retrain_metrics.log_metric("retrain_reason_ok", 1.0)
+
         os.makedirs(retrained_model.path, exist_ok=True)
         with open(os.path.join(retrained_model.path, "SKIPPED.txt"), "w", encoding="utf-8") as wf:
             wf.write("retrain=false; skipping retrain_op\n")
-        print("retrain_skipped=1")
+
+        _print_metrics_table(
+            "RETRAIN",
+            [
+                ("retrain_skipped", 1.0),
+                ("retrain_triggered", 0.0),
+            ],
+        )
         return
 
     _install_torch_cpu()
@@ -640,10 +678,14 @@ def retrain_op(
     retrain_metrics.log_metric("retrain_test_accuracy", test_acc)
     retrain_metrics.log_metric("retrain_test_f1", test_f1)
 
-    # stdout (optional)
-    print("retrain_triggered=1")
-    print(f"retrain_test_accuracy={float(test_acc)}")
-    print(f"retrain_test_f1={float(test_f1)}")
+    _print_metrics_table(
+        "RETRAIN METRICS",
+        [
+            ("retrain_triggered", 1.0),
+            ("retrain_test_accuracy", float(test_acc)),
+            ("retrain_test_f1", float(test_f1)),
+        ],
+    )
 
     os.makedirs(retrained_model.path, exist_ok=True)
     example = torch.zeros((1, in_dim), dtype=torch.float32).to(device)
