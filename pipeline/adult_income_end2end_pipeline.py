@@ -13,29 +13,6 @@ from kfp.dsl import component, Input, Output, Dataset, Model, Metrics, Artifact
 BASE_IMAGE = "python:3.11-slim"
 
 
-def _write_kfp_metrics_json(metrics_out: Metrics, metrics: dict) -> None:
-    """
-    Force-write KFP metrics.json so Kubeflow UI always shows metrics.
-    KFP expects a file with schema: {"metrics":[{"name":..., "numberValue":...}, ...]}
-    """
-    import json
-    import os
-
-    payload = {
-        "metrics": [{"name": k, "numberValue": float(v)} for k, v in metrics.items()]
-    }
-
-    # metrics_out.path is a directory for system.Metrics artifact
-    out_dir = metrics_out.path
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "metrics.json")
-
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f)
-
-    print("✅ Wrote KFP metrics.json to:", out_path)
-
-
 @component(
     base_image=BASE_IMAGE,
     packages_to_install=[
@@ -74,6 +51,7 @@ def preprocess_op(
             raw = raw.strip()
             if not raw or raw.startswith("|"):
                 continue
+            # adult.test has a header line in some mirrors; skip it if present
             if is_test and i == 0 and raw.lower().startswith("age"):
                 continue
             lines.append(raw)
@@ -145,7 +123,7 @@ def preprocess_op(
 
 
 def _install_torch_cpu() -> None:
-    # Helper used for local execution (run_pipeline_locally.py) and for KFP containers.
+    # Helper used inside components.
     import subprocess
     import sys
 
@@ -182,9 +160,9 @@ def tune_op(
     seed: int = 42,
 ) -> None:
     """
-    Lightweight (Katib-like) random search.
+    Lightweight random search (Katib-like).
     Writes best_params.json to best_params.path.
-    Logs best_val_log_loss, best_val_acc, best_val_f1.
+    Logs and prints metrics in a Katib-friendly "name=value" format.
     """
     import json
     import os
@@ -192,8 +170,8 @@ def tune_op(
     import numpy as np
 
     random.seed(seed)
+    np.random.seed(seed)
 
-    # Search space (simple)
     lr_space = [0.0005, 0.001, 0.002, 0.003]
     hidden_space = [64, 128, 256]
     dropout_space = [0.0, 0.1, 0.2, 0.3]
@@ -208,9 +186,9 @@ def tune_op(
 
     data = np.load(os.path.join(dataset.path, "splits.npz"))
     X_train = data["X_train"].astype(np.float32)
-    y_train = data["y_train"].astype(np.float32)
+    y_train = data["y_train"].astype(np.float32)  # BCE expects float
     X_val = data["X_val"].astype(np.float32)
-    y_val = data["y_val"].astype(np.float32)
+    y_val = data["y_val"].astype(np.int64)
 
     Xtr = torch.from_numpy(X_train)
     ytr = torch.from_numpy(y_train)
@@ -266,13 +244,14 @@ def tune_op(
         v_proba = 1.0 / (1.0 + np.exp(-v_logits))
         v_pred = (v_proba >= 0.5).astype(int)
 
-        val_acc = float(accuracy_score(y_val.astype(int), v_pred))
-        val_f1 = float(f1_score(y_val.astype(int), v_pred))
-        val_ll = float(log_loss(y_val.astype(int), v_proba))
+        val_acc = float(accuracy_score(y_val, v_pred))
+        val_f1 = float(f1_score(y_val, v_pred))
+        val_ll = float(log_loss(y_val, v_proba))
 
+        # Trial log (human friendly)
         print(
             f"trial={t}/{trials} lr={lr} hidden={hidden} drop={dropout} bs={batch_size} "
-            f"val_acc={val_acc:.4f} val_f1={val_f1:.4f} val_logloss={val_ll:.4f}"
+            f"val_accuracy={val_acc:.6f} val_f1={val_f1:.6f} val_log_loss={val_ll:.6f}"
         )
 
         if val_f1 > best_score:
@@ -293,19 +272,15 @@ def tune_op(
     with open(os.path.join(best_params.path, "best_params.json"), "w", encoding="utf-8") as f:
         json.dump(best, f, indent=2)
 
+    # Log to Metrics artifact
     tuning_metrics.log_metric("best_val_accuracy", float(best["val_accuracy"]))
     tuning_metrics.log_metric("best_val_f1", float(best["val_f1"]))
     tuning_metrics.log_metric("best_val_log_loss", float(best["val_log_loss"]))
 
-    # Force metrics.json so UI shows metrics consistently
-    _write_kfp_metrics_json(
-        tuning_metrics,
-        {
-            "best_val_accuracy": float(best["val_accuracy"]),
-            "best_val_f1": float(best["val_f1"]),
-            "best_val_log_loss": float(best["val_log_loss"]),
-        },
-    )
+    # ALSO print in Katib-friendly "name=value" format (easy regex)
+    print(f"best_val_accuracy={float(best['val_accuracy']):.6f}")
+    print(f"best_val_f1={float(best['val_f1']):.6f}")
+    print(f"best_val_log_loss={float(best['val_log_loss']):.6f}")
 
 
 @component(
@@ -328,7 +303,8 @@ def train_eval_torch_op(
 ) -> None:
     """
     Train/eval using best_params.json from tune_op.
-    Saves TorchScript model to model.path/model.pt and logs metrics.
+    Saves TorchScript model to model.path/model.pt.
+    Logs metrics to Metrics artifact AND prints them as "name=value" for Katib.
     """
     import os
     import json
@@ -361,14 +337,14 @@ def train_eval_torch_op(
     X_train = data["X_train"].astype(np.float32)
     y_train = data["y_train"].astype(np.float32)
     X_val = data["X_val"].astype(np.float32)
-    y_val = data["y_val"].astype(np.float32)
+    y_val = data["y_val"].astype(np.int64)
     X_test = data["X_test"].astype(np.float32)
-    y_test = data["y_test"].astype(np.float32)
+    y_test = data["y_test"].astype(np.int64)
 
     Xtr = torch.from_numpy(X_train)
     ytr = torch.from_numpy(y_train)
     Xv = torch.from_numpy(X_val)
-    yv = torch.from_numpy(y_val)
+    yv = torch.from_numpy(y_val.astype(np.float32))  # BCE expects float
     Xt = torch.from_numpy(X_test)
 
     in_dim = X_train.shape[1]
@@ -400,6 +376,7 @@ def train_eval_torch_op(
     best_val_loss = float("inf")
     best_state = None
     bad_epochs = 0
+
     last_val_acc = 0.0
     last_val_f1 = 0.0
 
@@ -418,17 +395,18 @@ def train_eval_torch_op(
         with torch.no_grad():
             for xb, yb in val_loader:
                 v_logits_all.append(net(xb).cpu())
-                v_y_all.append(yb)
+                v_y_all.append(yb.cpu())
 
         v_logits = torch.cat(v_logits_all, dim=0).numpy()
-        v_y = torch.cat(v_y_all, dim=0).numpy()
+        v_y_float = torch.cat(v_y_all, dim=0).numpy()
+        v_y = (v_y_float >= 0.5).astype(int)
 
         v_proba = 1.0 / (1.0 + np.exp(-v_logits))
         v_pred = (v_proba >= 0.5).astype(int)
 
-        val_acc = float(accuracy_score(v_y.astype(int), v_pred))
-        val_f1 = float(f1_score(v_y.astype(int), v_pred))
-        val_ll = float(log_loss(v_y.astype(int), v_proba))
+        val_acc = float(accuracy_score(v_y, v_pred))
+        val_f1 = float(f1_score(v_y, v_pred))
+        val_ll = float(log_loss(v_y, v_proba))
 
         last_val_acc = val_acc
         last_val_f1 = val_f1
@@ -445,6 +423,7 @@ def train_eval_torch_op(
     if best_state is not None:
         net.load_state_dict(best_state)
 
+    # TEST
     net.eval()
     with torch.no_grad():
         t_logits = net(Xt).cpu().numpy()
@@ -452,28 +431,24 @@ def train_eval_torch_op(
     t_proba = 1.0 / (1.0 + np.exp(-t_logits))
     t_pred = (t_proba >= 0.5).astype(int)
 
-    test_acc = float(accuracy_score(y_test.astype(int), t_pred))
-    test_f1 = float(f1_score(y_test.astype(int), t_pred))
+    test_acc = float(accuracy_score(y_test, t_pred))
+    test_f1 = float(f1_score(y_test, t_pred))
 
-    # Log metrics (metadata)
+    # Log to Metrics artifact (KFP)
     metrics_out.log_metric("val_log_loss_best", float(best_val_loss))
     metrics_out.log_metric("val_accuracy", float(last_val_acc))
     metrics_out.log_metric("val_f1", float(last_val_f1))
     metrics_out.log_metric("test_accuracy", float(test_acc))
     metrics_out.log_metric("test_f1", float(test_f1))
 
-    # Force metrics.json so UI shows metrics consistently
-    _write_kfp_metrics_json(
-        metrics_out,
-        {
-            "val_log_loss_best": float(best_val_loss),
-            "val_accuracy": float(last_val_acc),
-            "val_f1": float(last_val_f1),
-            "test_accuracy": float(test_acc),
-            "test_f1": float(test_f1),
-        },
-    )
+    # ALSO print for Katib metrics collector (StdOut)
+    print(f"val_log_loss_best={float(best_val_loss):.6f}")
+    print(f"val_accuracy={float(last_val_acc):.6f}")
+    print(f"val_f1={float(last_val_f1):.6f}")
+    print(f"test_accuracy={float(test_acc):.6f}")
+    print(f"test_f1={float(test_f1):.6f}")
 
+    # Save TorchScript
     os.makedirs(model.path, exist_ok=True)
     example = torch.zeros((1, in_dim), dtype=torch.float32).to(device)
     scripted = torch.jit.trace(net, example)
@@ -533,7 +508,7 @@ def monitor_and_maybe_retrain_op(
     import os
     import json
 
-    m = metrics.metadata
+    m = metrics.metadata or {}
     test_acc = float(m.get("test_accuracy", 0.0))
 
     os.makedirs(retrain_triggered.path, exist_ok=True)
@@ -545,6 +520,10 @@ def monitor_and_maybe_retrain_op(
     }
     with open(os.path.join(retrain_triggered.path, "monitor.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
+
+    # Optional stdout line (if you ever want to regex it too)
+    print(f"monitor_test_accuracy={test_acc:.6f}")
+    print(f"monitor_retrain={(1 if test_acc < min_test_accuracy else 0)}")
 
 
 @component(
@@ -574,13 +553,10 @@ def retrain_op(
     if not bool(mon.get("retrain", False)):
         retrain_metrics.log_metric("retrain_skipped", 1.0)
         retrain_metrics.log_metric("retrain_reason_ok", 1.0)
-        _write_kfp_metrics_json(
-            retrain_metrics,
-            {"retrain_skipped": 1.0, "retrain_reason_ok": 1.0},
-        )
         os.makedirs(retrained_model.path, exist_ok=True)
         with open(os.path.join(retrained_model.path, "SKIPPED.txt"), "w", encoding="utf-8") as wf:
             wf.write("retrain=false; skipping retrain_op\n")
+        print("retrain_skipped=1")
         return
 
     _install_torch_cpu()
@@ -610,7 +586,7 @@ def retrain_op(
     X_train = data["X_train"].astype(np.float32)
     y_train = data["y_train"].astype(np.float32)
     X_test = data["X_test"].astype(np.float32)
-    y_test = data["y_test"].astype(np.float32)
+    y_test = data["y_test"].astype(np.int64)
 
     Xtr = torch.from_numpy(X_train)
     ytr = torch.from_numpy(y_train)
@@ -657,21 +633,17 @@ def retrain_op(
     t_proba = 1.0 / (1.0 + np.exp(-t_logits))
     t_pred = (t_proba >= 0.5).astype(int)
 
-    test_acc = float(accuracy_score(y_test.astype(int), t_pred))
-    test_f1 = float(f1_score(y_test.astype(int), t_pred))
+    test_acc = float(accuracy_score(y_test, t_pred))
+    test_f1 = float(f1_score(y_test, t_pred))
 
     retrain_metrics.log_metric("retrain_triggered", 1.0)
     retrain_metrics.log_metric("retrain_test_accuracy", test_acc)
     retrain_metrics.log_metric("retrain_test_f1", test_f1)
 
-    _write_kfp_metrics_json(
-        retrain_metrics,
-        {
-            "retrain_triggered": 1.0,
-            "retrain_test_accuracy": float(test_acc),
-            "retrain_test_f1": float(test_f1),
-        },
-    )
+    # stdout (optional)
+    print("retrain_triggered=1")
+    print(f"retrain_test_accuracy={test_acc:.6f}")
+    print(f"retrain_test_f1={test_f1:.6f}")
 
     os.makedirs(retrained_model.path, exist_ok=True)
     example = torch.zeros((1, in_dim), dtype=torch.float32).to(device)
@@ -714,7 +686,7 @@ def adult_income_end2end_pipeline(
         seed=random_state,
     )
 
-    build_serving_manifest_op(image=serving_image)
+    serving = build_serving_manifest_op(image=serving_image)
 
     mon = monitor_and_maybe_retrain_op(
         metrics=train.outputs["metrics_out"],
