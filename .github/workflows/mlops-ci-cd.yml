@@ -1,4 +1,4 @@
-name: MLOps End-to-End Pipeline (Self-Hosted CD)
+name: MLOps End-to-End Pipeline
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   build-test-secure:
     runs-on: ubuntu-latest
 
@@ -37,6 +38,7 @@ jobs:
             echo "No pipeline compile script found"
             exit 1
           fi
+
           ls -la pipeline
           test -f pipeline/adult_income_end2end.yaml
 
@@ -51,10 +53,11 @@ jobs:
   cd-upload-kubeflow:
     needs: build-test-secure
     if: github.ref == 'refs/heads/main'
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64, kfp, participant-17]
     timeout-minutes: 30
 
     steps:
+
       - name: Download compiled pipeline artifact
         uses: actions/download-artifact@v4
         with:
@@ -62,103 +65,83 @@ jobs:
           path: ./pipeline
 
       - name: Verify artifact
-        shell: bash
         run: |
-          set -e
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Check python3 is available on self-hosted
-        shell: bash
+      - name: Check Python3 exists on runner
         run: |
-          set -e
           which python3
           python3 --version
 
-      - name: Create venv + install deps (PEP668 safe)
-        shell: bash
+      - name: Create virtual environment (PEP668 safe)
         run: |
-          set -e
           python3 -m venv .venv
-          . .venv/bin/activate
-          python --version
+          source .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install "kfp==2.*" requests
+          pip install requests
 
-      - name: Upload pipeline to KFP (in-cluster REST)
+      - name: Upload pipeline to Kubeflow (in-cluster)
         env:
-          KFP_HOST: ${{ secrets.KFP_HOST }}               # http://ml-pipeline.kubeflow:8888
+          KFP_HOST: ${{ secrets.KFP_HOST }}      # http://ml-pipeline.kubeflow:8888
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
           KFP_NAMESPACE: participant-17
           PIPELINE_NAME: adult-income-end2end
-        shell: bash
         run: |
-          set -e
-          . .venv/bin/activate
+          source .venv/bin/activate
 
           python - <<'PY'
           import os, sys, requests
 
-          host = os.environ["KFP_HOST"].rstrip("/")  # in-cluster: http://ml-pipeline.kubeflow:8888
-          token = os.environ["KFP_BEARER_TOKEN"].strip()
-          ns = os.environ["KFP_NAMESPACE"].strip()
-          name = os.environ["PIPELINE_NAME"].strip()
+          host = os.environ["KFP_HOST"].rstrip("/")
+          token = os.environ["KFP_BEARER_TOKEN"]
+          namespace = os.environ["KFP_NAMESPACE"]
+          name = os.environ["PIPELINE_NAME"]
           path = "./pipeline/adult_income_end2end.yaml"
 
           headers = {
               "Authorization": f"Bearer {token}",
-              "X-User-Namespace": ns,
+              "X-User-Namespace": namespace,
           }
 
-          def short(s, n=400):
-              s = s or ""
-              return s[:n].replace("\n"," ")
+          print("Probing KFP API...")
+          probe = requests.get(f"{host}/apis/v1beta1/healthz",
+                               headers=headers, timeout=20)
 
-          # Probe API (in-cluster should NOT return Dex HTML)
-          probe = host + "/apis/v1beta1/healthz"
-          r = requests.get(probe, headers=headers, timeout=20)
-          ct = (r.headers.get("content-type") or "").lower()
-          print("Probe:", probe, "->", r.status_code, ct)
+          print("Healthz:", probe.status_code)
+          if probe.status_code != 200:
+              print("Health check failed:", probe.text[:300])
+              sys.exit(1)
 
-          if r.status_code != 200 or "text/html" in ct:
-              print("❌ KFP host not reachable as API. Check KFP_HOST (must be in-cluster ml-pipeline service).")
-              print("Body:", short(r.text, 800))
+          print("Uploading pipeline...")
+
+          with open(path, "rb") as f:
+              files = {
+                  "uploadfile": (
+                      os.path.basename(path),
+                      f,
+                      "application/yaml"
+                  )
+              }
+
+              data = {
+                  "name": name,
+                  "description": "Uploaded from GitHub Actions"
+              }
+
+              r = requests.post(
+                  f"{host}/apis/v1beta1/pipelines/upload",
+                  headers=headers,
+                  files=files,
+                  data=data,
+                  timeout=180
+              )
+
+          print("Upload status:", r.status_code)
+
+          if r.status_code not in (200, 201):
+              print("Upload failed:", r.text[:800])
               sys.exit(2)
 
-          upload_urls = [
-              host + "/apis/v2beta1/pipelines/upload",
-              host + "/apis/v1beta1/pipelines/upload",
-          ]
-
-          last = None
-          for url in upload_urls:
-              with open(path, "rb") as f:
-                  files = {"uploadfile": (os.path.basename(path), f, "application/yaml")}
-                  data = {"name": name, "description": f"Uploaded from GitHub Actions ({os.environ.get('GITHUB_SHA','')[:7]})"}
-                  r = requests.post(url, headers=headers, files=files, data=data, timeout=180)
-                  last = r
-
-              ct = (r.headers.get("content-type") or "").lower()
-              print("Upload:", url, "->", r.status_code, ct)
-
-              if "text/html" in ct:
-                  print("❌ Got HTML again (Dex). Wrong host/path.")
-                  print("Body:", short(r.text, 800))
-                  continue
-
-              if r.status_code in (200, 201):
-                  print("✅ Upload success.")
-                  try:
-                      print(r.json())
-                  except Exception:
-                      print(short(r.text, 800))
-                  sys.exit(0)
-
-              print("⚠️ Upload response:", short(r.text, 800))
-
-          print("❌ Upload failed for all endpoints.")
-          if last is not None:
-              print("Last status:", last.status_code)
-              print("Last body:", short(last.text, 1200))
-          sys.exit(3)
+          print("✅ Pipeline uploaded successfully")
           PY
