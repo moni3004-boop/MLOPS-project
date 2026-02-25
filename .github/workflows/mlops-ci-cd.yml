@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-
   build-test-secure:
     runs-on: ubuntu-latest
 
@@ -18,17 +17,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "kfp==2.*" requests
+          pip install "kfp==2.*" pip-audit
 
       - name: Compile pipeline
         run: |
           mkdir -p pipeline
-
           if [ -f adult_income_end2end_pipeline.py ]; then
             python adult_income_end2end_pipeline.py
           elif [ -f pipeline/kfp_pipeline.py ]; then
@@ -37,26 +37,33 @@ jobs:
             echo "No pipeline compile script found"
             exit 1
           fi
-
-          echo "Listing pipeline folder:"
           ls -la pipeline
-
           test -f pipeline/adult_income_end2end.yaml
+
+      - name: Dependency security scan
+        run: |
+          pip-audit || true
+
+      - name: Docker build (CI only)
+        run: |
+          docker build -t adult-income-api:ci -f docker/Dockerfile .
 
       - name: Upload compiled pipeline artifact
         uses: actions/upload-artifact@v4
         with:
           name: compiled-pipeline
           path: pipeline/adult_income_end2end.yaml
+          if-no-files-found: error
 
 
   cd-upload-kubeflow:
     needs: build-test-secure
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Ако сакаш self-hosted, смени во:
+    # runs-on: self-hosted
 
     steps:
-
       - name: Download compiled pipeline artifact
         uses: actions/download-artifact@v4
         with:
@@ -68,17 +75,12 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install KFP client
+      - name: Install runtime deps
         run: |
           python -m pip install --upgrade pip
-          pip install "kfp==2.*" requests
+          pip install requests
 
-      - name: Upload pipeline to Kubeflow
+      - name: Upload pipeline to Kubeflow (REST, avoids Dex)
         env:
           KFP_HOST: ${{ secrets.KFP_HOST }}
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
@@ -87,60 +89,96 @@ jobs:
         run: |
           python - <<'PY'
           import os, sys, requests
-          from kfp import Client
 
           host = os.environ["KFP_HOST"].rstrip("/")
           token = os.environ["KFP_BEARER_TOKEN"].strip()
-          namespace = os.environ["KFP_NAMESPACE"]
-          pipeline_path = "./pipeline/adult_income_end2end.yaml"
-          pipeline_name = os.environ["PIPELINE_NAME"]
+          ns = os.environ["KFP_NAMESPACE"].strip()
+          name = os.environ["PIPELINE_NAME"].strip()
+          path = "./pipeline/adult_income_end2end.yaml"
 
           headers = {
-              "Authorization": f"Bearer {token}",
-              "X-User-Namespace": namespace,
+            "Authorization": f"Bearer {token}",
+            "X-User-Namespace": ns,
           }
 
-          # Health check
-          r = requests.get(f"{host}/_/pipeline/apis/v1beta1/healthz",
-                           headers=headers, timeout=20)
+          def is_html(resp: requests.Response) -> bool:
+            ct = (resp.headers.get("content-type") or "").lower()
+            if "text/html" in ct:
+              return True
+            t = (resp.text or "").lstrip().lower()
+            return t.startswith("<!doctype html") or "<title>dex</title>" in t
 
-          if r.status_code != 200:
-              print("❌ API health check failed:", r.text[:200])
-              sys.exit(1)
+          # Candidate bases (common Kubeflow layouts)
+          bases = []
+          if host.endswith("/_/pipeline") or host.endswith("/pipeline"):
+            bases.append(host)
+          else:
+            bases.extend([host + "/_/pipeline", host + "/pipeline", host])
 
-          print("✅ Connected to Kubeflow")
+          ok_base = None
+          for base in bases:
+            url = base + "/apis/v1beta1/healthz"
+            try:
+              r = requests.get(url, headers=headers, timeout=20)
+            except Exception as e:
+              print("Probe failed:", url, e)
+              continue
 
-          client = Client(
-              host=f"{host}/_/pipeline",
-              existing_token=token
-          )
+            ct = (r.headers.get("content-type") or "")
+            print("Probe:", url, "->", r.status_code, ct)
 
-          try:
-              p = client.upload_pipeline(
-                  pipeline_package_path=pipeline_path,
-                  pipeline_name=pipeline_name,
-                  namespace=namespace
-              )
-              print("✅ Uploaded new pipeline:", p.pipeline_id)
+            if r.status_code == 200 and not is_html(r):
+              ok_base = base
+              break
 
-          except Exception:
-              pipelines = client.list_pipelines(
-                  page_size=200,
-                  namespace=namespace
-              ).pipelines or []
+          if not ok_base:
+            print("❌ Could not find KFP API base without Dex/HTML.")
+            print("Tried:", bases)
+            sys.exit(2)
 
-              match = next((p for p in pipelines if p.name == pipeline_name), None)
+          print("✅ Using KFP base:", ok_base)
 
-              if not match:
-                  raise
+          upload_urls = [
+            ok_base + "/apis/v2beta1/pipelines/upload",
+            ok_base + "/apis/v1beta1/pipelines/upload",
+          ]
 
-              version_name = "main-" + os.environ.get("GITHUB_SHA","")[:7]
+          with open(path, "rb") as f:
+            files = {"uploadfile": (os.path.basename(path), f, "application/yaml")}
+            data = {
+              "name": name,
+              "description": f"Uploaded from GitHub Actions ({os.environ.get('GITHUB_SHA','')[:7]})"
+            }
 
-              v = client.upload_pipeline_version(
-                  pipeline_package_path=pipeline_path,
-                  pipeline_version_name=version_name,
-                  pipeline_id=match.pipeline_id
-              )
+            last = None
+            for url in upload_urls:
+              try:
+                r = requests.post(url, headers=headers, files=files, data=data, timeout=180)
+                last = r
+              except Exception as e:
+                print("Upload failed:", url, e)
+                continue
 
-              print("✅ Uploaded new version:", v.pipeline_version_id)
+              ct = (r.headers.get("content-type") or "")
+              print("Upload:", url, "->", r.status_code, ct)
+
+              if is_html(r):
+                print("❌ Got HTML/Dex again. Wrong endpoint or token not accepted.")
+                continue
+
+              if r.status_code in (200, 201):
+                print("✅ Upload success.")
+                try:
+                  print(r.json())
+                except Exception:
+                  print((r.text or "")[:500])
+                sys.exit(0)
+
+              print("⚠️ Upload response:", (r.text or "")[:500].replace("\n"," "))
+
+            print("❌ Upload failed for all endpoints.")
+            if last is not None:
+              print("Last status:", last.status_code)
+              print("Last body:", (last.text or "")[:800])
+            sys.exit(3)
           PY
