@@ -13,29 +13,6 @@ from kfp.dsl import component, Input, Output, Dataset, Model, Metrics, Artifact
 BASE_IMAGE = "python:3.11-slim"
 
 
-def _write_kfp_metrics_json(metrics_out: Metrics, metrics: dict) -> None:
-    """
-    Force-write KFP metrics.json so Kubeflow UI always shows metrics.
-    KFP expects a file with schema: {"metrics":[{"name":..., "numberValue":...}, ...]}
-    """
-    import json
-    import os
-
-    payload = {
-        "metrics": [{"name": k, "numberValue": float(v)} for k, v in metrics.items()]
-    }
-
-    # metrics_out.path is a directory for system.Metrics artifact
-    out_dir = metrics_out.path
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "metrics.json")
-
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f)
-
-    print("✅ Wrote KFP metrics.json to:", out_path)
-
-
 @component(
     base_image=BASE_IMAGE,
     packages_to_install=[
@@ -297,16 +274,6 @@ def tune_op(
     tuning_metrics.log_metric("best_val_f1", float(best["val_f1"]))
     tuning_metrics.log_metric("best_val_log_loss", float(best["val_log_loss"]))
 
-    # Force metrics.json so UI shows metrics consistently
-    _write_kfp_metrics_json(
-        tuning_metrics,
-        {
-            "best_val_accuracy": float(best["val_accuracy"]),
-            "best_val_f1": float(best["val_f1"]),
-            "best_val_log_loss": float(best["val_log_loss"]),
-        },
-    )
-
 
 @component(
     base_image=BASE_IMAGE,
@@ -455,24 +422,11 @@ def train_eval_torch_op(
     test_acc = float(accuracy_score(y_test.astype(int), t_pred))
     test_f1 = float(f1_score(y_test.astype(int), t_pred))
 
-    # Log metrics (metadata)
     metrics_out.log_metric("val_log_loss_best", float(best_val_loss))
     metrics_out.log_metric("val_accuracy", float(last_val_acc))
     metrics_out.log_metric("val_f1", float(last_val_f1))
     metrics_out.log_metric("test_accuracy", float(test_acc))
     metrics_out.log_metric("test_f1", float(test_f1))
-
-    # Force metrics.json so UI shows metrics consistently
-    _write_kfp_metrics_json(
-        metrics_out,
-        {
-            "val_log_loss_best": float(best_val_loss),
-            "val_accuracy": float(last_val_acc),
-            "val_f1": float(last_val_f1),
-            "test_accuracy": float(test_acc),
-            "test_f1": float(test_f1),
-        },
-    )
 
     os.makedirs(model.path, exist_ok=True)
     example = torch.zeros((1, in_dim), dtype=torch.float32).to(device)
@@ -574,10 +528,6 @@ def retrain_op(
     if not bool(mon.get("retrain", False)):
         retrain_metrics.log_metric("retrain_skipped", 1.0)
         retrain_metrics.log_metric("retrain_reason_ok", 1.0)
-        _write_kfp_metrics_json(
-            retrain_metrics,
-            {"retrain_skipped": 1.0, "retrain_reason_ok": 1.0},
-        )
         os.makedirs(retrained_model.path, exist_ok=True)
         with open(os.path.join(retrained_model.path, "SKIPPED.txt"), "w", encoding="utf-8") as wf:
             wf.write("retrain=false; skipping retrain_op\n")
@@ -663,15 +613,6 @@ def retrain_op(
     retrain_metrics.log_metric("retrain_triggered", 1.0)
     retrain_metrics.log_metric("retrain_test_accuracy", test_acc)
     retrain_metrics.log_metric("retrain_test_f1", test_f1)
-
-    _write_kfp_metrics_json(
-        retrain_metrics,
-        {
-            "retrain_triggered": 1.0,
-            "retrain_test_accuracy": float(test_acc),
-            "retrain_test_f1": float(test_f1),
-        },
-    )
 
     os.makedirs(retrained_model.path, exist_ok=True)
     example = torch.zeros((1, in_dim), dtype=torch.float32).to(device)
