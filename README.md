@@ -347,7 +347,7 @@ CI workflow includes:
 
 ### CI Execution
 
-![CI Run](docs/images/ci-run.png)
+![CI Run](docs/images/ci-cd.png)
 
 ---
 
