@@ -66,7 +66,7 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      - name: Upload pipeline + create/get experiment + trigger run (curl)
+      - name: Upload pipeline + create/get experiment + trigger run (curl, multi-user)
         env:
           KFP_HOST: ${{ secrets.KFP_HOST }}
           KFP_BEARER_TOKEN: ${{ secrets.KFP_BEARER_TOKEN }}
@@ -75,7 +75,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # KFP uses the uploadfile *filename* as pipeline name -> must be unique
           SRC_FILE="./pipeline/adult_income_end2end.yaml"
           UNIQUE_FILE="./pipeline/adult-income-end2end-${GITHUB_SHA::7}.yaml"
           cp "$SRC_FILE" "$UNIQUE_FILE"
@@ -98,7 +97,7 @@ jobs:
           fi
           echo "✅ healthz ok: $(cat /tmp/body.txt)"
 
-          # 1) Upload pipeline (name comes from UNIQUE_FILE filename!)
+          # 1) Upload pipeline (name is derived from file name)
           curl -sS -D /tmp/up_hdrs.txt -o /tmp/up_body.txt \
             -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
             -H "X-User-Namespace: $KFP_NAMESPACE" \
@@ -117,36 +116,59 @@ jobs:
 
           PIPELINE_ID=$(cat /tmp/up_body.txt | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
           if [ -z "${PIPELINE_ID:-}" ]; then
-            echo "❌ Could not parse pipeline id from upload response"
+            echo "❌ Could not parse pipeline id"
             exit 4
           fi
           echo "✅ PIPELINE_ID=$PIPELINE_ID"
 
-          # 2) Find or create experiment
+          # 2) Find experiment by name in this namespace
           curl -sS -o /tmp/exp_list.json \
             -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
             -H "X-User-Namespace: $KFP_NAMESPACE" \
             "$KFP_HOST/apis/v1beta1/experiments?page_size=200&namespace=$KFP_NAMESPACE"
 
-          EXP_ID=$(cat /tmp/exp_list.json | tr '\n' ' ' | sed -n "s/.*\"id\":\"\\([^\"]*\\)\",\"name\":\"$EXPERIMENT_NAME\".*/\\1/p" | head -n 1)
+          # robust-ish grep/sed extraction: find "...\"name\":\"ci-experiment\"..." then capture nearest "id"
+          EXP_ID=$(
+            tr '\n' ' ' < /tmp/exp_list.json \
+            | sed -n "s/.*\"id\":\"\\([^\"]*\\)\"[^}]*\"name\":\"$EXPERIMENT_NAME\".*/\\1/p" \
+            | head -n 1
+          )
 
           if [ -z "${EXP_ID:-}" ]; then
-            echo "Experiment not found -> creating..."
-            curl -sS -o /tmp/exp_create.json \
+            echo "Experiment not found -> creating (multi-user requires namespace ref)..."
+            curl -sS -D /tmp/exp_hdrs.txt -o /tmp/exp_create.json \
               -X POST \
               -H "Authorization: Bearer $KFP_BEARER_TOKEN" \
               -H "X-User-Namespace: $KFP_NAMESPACE" \
               -H "Content-Type: application/json" \
               "$KFP_HOST/apis/v1beta1/experiments" \
-              -d "{\"name\":\"$EXPERIMENT_NAME\",\"namespace\":\"$KFP_NAMESPACE\"}"
+              -d "{
+                \"name\": \"${EXPERIMENT_NAME}\",
+                \"namespace\": \"${KFP_NAMESPACE}\",
+                \"resource_references\": [
+                  {
+                    \"key\": { \"type\": \"NAMESPACE\", \"id\": \"${KFP_NAMESPACE}\" },
+                    \"relationship\": \"OWNER\"
+                  }
+                ]
+              }"
 
+            echo "Experiment create response:"
             cat /tmp/exp_create.json
+
+            # Accept 200/201 only
+            if ! grep -Eq "HTTP/.* (200|201)" /tmp/exp_hdrs.txt; then
+              echo "❌ Experiment create failed:"
+              cat /tmp/exp_hdrs.txt || true
+              exit 5
+            fi
+
             EXP_ID=$(cat /tmp/exp_create.json | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
           fi
 
           if [ -z "${EXP_ID:-}" ]; then
             echo "❌ Could not get/create experiment id"
-            exit 5
+            exit 6
           fi
           echo "✅ EXPERIMENT_ID=$EXP_ID"
 
@@ -170,7 +192,7 @@ jobs:
             echo "❌ Run create failed:"
             cat /tmp/run_hdrs.txt || true
             head -c 900 /tmp/run_body.txt || true
-            exit 6
+            exit 7
           fi
 
           echo "✅ Run created:"
