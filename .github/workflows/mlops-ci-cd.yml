@@ -72,10 +72,22 @@ jobs:
           ls -la ./pipeline
           test -f ./pipeline/adult_income_end2end.yaml
 
-      # - name: Verify Python is available
-      #   run: |
-      #     python --version
-      #     pip --version
+      - name: Runner identity (debug)
+        run: |
+          echo "whoami: $(whoami)"
+          id || true
+          uname -a || true
+
+      - name: Install Python + pip on self-hosted runner
+        shell: bash
+        run: |
+          set -e
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends python3 python3-pip ca-certificates
+          python3 --version
+          python3 -m pip --version
+          sudo ln -sf /usr/bin/python3 /usr/local/bin/python
+          python --version
 
       - name: Install runtime dependencies
         run: |
