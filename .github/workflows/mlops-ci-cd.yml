@@ -3,8 +3,7 @@ name: MLOps End-to-End Pipeline
 on:
   push:
     branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   build-test-secure:
@@ -25,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install kfp==2.* pip-audit
+          pip install "kfp==2.*" pip-audit
 
       - name: Compile pipeline
         run: |
@@ -45,7 +44,7 @@ jobs:
         run: |
           pip-audit || true
 
-      - name: Docker build
+      - name: Docker build (CI only)
         run: |
           docker build -t adult-income-api:ci -f docker/Dockerfile .
 
@@ -54,14 +53,17 @@ jobs:
         with:
           name: compiled-pipeline
           path: pipeline/adult_income_end2end.yaml
-
+          if-no-files-found: error
 
   cd-upload-kubeflow:
     needs: build-test-secure
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, kfp, participant-17]
 
     steps:
+      - name: Checkout (optional)
+        uses: actions/checkout@v4
+
       - name: Download compiled pipeline artifact
         uses: actions/download-artifact@v4
         with:
@@ -81,12 +83,10 @@ jobs:
           PIPELINE_NAME: adult-income-end2end
         run: |
           python -m pip install --upgrade pip
-          pip install kfp==2.* requests
+          pip install "kfp==2.*" requests
 
-          # Quick API probe (must NOT return HTML)
           python - <<'PY'
           import os, sys, requests
-
           host = os.environ["KFP_HOST"].rstrip("/")
           token = os.environ["KFP_BEARER_TOKEN"].strip()
           ns = os.environ["KFP_NAMESPACE"].strip()
@@ -96,24 +96,23 @@ jobs:
               f"{host}/_/pipeline/apis/v1beta1/swagger.json",
           ]
 
-          headers = {
-              "Authorization": f"Bearer {token}",
-              "X-User-Namespace": ns,
-          }
+          headers = {"Authorization": f"Bearer {token}", "X-User-Namespace": ns}
 
           for url in probe_urls:
-              r = requests.get(url, headers=headers, timeout=15)
+              r = requests.get(url, headers=headers, timeout=20)
               ct = (r.headers.get("content-type") or "").lower()
               print("Probe:", url, "->", r.status_code, ct)
               if "text/html" in ct:
                   print("❌ Got HTML (Dex/login). Token not accepted or wrong host.")
                   print("First200:", r.text[:200].replace("\n"," "))
                   sys.exit(2)
+              if r.status_code >= 400:
+                  print("❌ Probe failed:", r.text[:200].replace("\n"," "))
+                  sys.exit(3)
 
           print("✅ Probes look good.")
           PY
 
-          # Upload with KFP SDK (uses token)
           python - <<'PY'
           import os
           from kfp import Client
@@ -124,11 +123,7 @@ jobs:
           pipeline_path = "./pipeline/adult_income_end2end.yaml"
           pipeline_name = os.environ.get("PIPELINE_NAME", "adult-income-end2end")
 
-          # ✅ Correct for KFP v2.x
-          client = Client(
-              host=f"{host}/_/pipeline",
-              existing_token=token
-          )
+          client = Client(host=f"{host}/_/pipeline", existing_token=token)
 
           try:
               p = client.upload_pipeline(
