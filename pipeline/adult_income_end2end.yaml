@@ -2,47 +2,14 @@
 # Name: adult-income-end2end
 # Inputs:
 #    dataset_url: str [Default: 'https://archive.ics.uci.edu/ml/machine-learning-databases/adult']
-#    min_test_accuracy: float [Default: 0.84]
 #    random_state: int [Default: 42.0]
-#    retrain_epochs: int [Default: 10.0]
-#    serving_image: str [Default: 'adult-income-api:local']
-#    test_size: float [Default: 0.2]
 #    train_epochs: int [Default: 20.0]
 #    trials: int [Default: 10.0]
 #    tune_epochs: int [Default: 5.0]
-#    val_size: float [Default: 0.1]
+# Outputs:
+#    train-eval-torch-op-metrics_out: system.Metrics
+#    tune-op-tuning_metrics: system.Metrics
 components:
-  comp-build-serving-manifest-op:
-    executorLabel: exec-build-serving-manifest-op
-    inputDefinitions:
-      parameters:
-        image:
-          parameterType: STRING
-    outputDefinitions:
-      artifacts:
-        out_manifest:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
-  comp-monitor-and-maybe-retrain-op:
-    executorLabel: exec-monitor-and-maybe-retrain-op
-    inputDefinitions:
-      artifacts:
-        metrics:
-          artifactType:
-            schemaTitle: system.Metrics
-            schemaVersion: 0.0.1
-      parameters:
-        min_test_accuracy:
-          defaultValue: 0.84
-          isOptional: true
-          parameterType: NUMBER_DOUBLE
-    outputDefinitions:
-      artifacts:
-        retrain_triggered:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
   comp-preprocess-op:
     executorLabel: exec-preprocess-op
     inputDefinitions:
@@ -66,41 +33,6 @@ components:
         output_dataset:
           artifactType:
             schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
-  comp-retrain-op:
-    executorLabel: exec-retrain-op
-    inputDefinitions:
-      artifacts:
-        best_params:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
-        dataset:
-          artifactType:
-            schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
-        monitor:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
-      parameters:
-        epochs:
-          defaultValue: 10.0
-          isOptional: true
-          parameterType: NUMBER_INTEGER
-        seed:
-          defaultValue: 42.0
-          isOptional: true
-          parameterType: NUMBER_INTEGER
-    outputDefinitions:
-      artifacts:
-        retrain_metrics:
-          artifactType:
-            schemaTitle: system.Metrics
-            schemaVersion: 0.0.1
-        retrained_model:
-          artifactType:
-            schemaTitle: system.Model
             schemaVersion: 0.0.1
   comp-train-eval-torch-op:
     executorLabel: exec-train-eval-torch-op
@@ -151,7 +83,7 @@ components:
             schemaVersion: 0.0.1
       parameters:
         epochs:
-          defaultValue: 10.0
+          defaultValue: 5.0
           isOptional: true
           parameterType: NUMBER_INTEGER
         seed:
@@ -174,87 +106,6 @@ components:
             schemaVersion: 0.0.1
 deploymentSpec:
   executors:
-    exec-build-serving-manifest-op:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - build_serving_manifest_op
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
-          $0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef build_serving_manifest_op(\n    image: str,\n    out_manifest:\
-          \ Output[Artifact],\n) -> None:\n    \"\"\"\n    Creates Kubernetes YAML\
-          \ manifest for serving the FastAPI container.\n    (Serving step in pipeline.)\n\
-          \    \"\"\"\n    import os\n\n    os.makedirs(out_manifest.path, exist_ok=True)\n\
-          \    manifest = f\"\"\"\\\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n\
-          \  name: adult-income-api\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n\
-          \      app: adult-income-api\n  template:\n    metadata:\n      labels:\n\
-          \        app: adult-income-api\n    spec:\n      containers:\n        -\
-          \ name: api\n          image: {image}\n          ports:\n            - containerPort:\
-          \ 8080\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: adult-income-api\n\
-          spec:\n  selector:\n    app: adult-income-api\n  ports:\n    - port: 80\n\
-          \      targetPort: 8080\n\"\"\"\n    with open(os.path.join(out_manifest.path,\
-          \ \"serving.yaml\"), \"w\", encoding=\"utf-8\") as f:\n        f.write(manifest)\n\
-          \n"
-        image: python:3.11-slim
-    exec-monitor-and-maybe-retrain-op:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - monitor_and_maybe_retrain_op
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
-          $0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef monitor_and_maybe_retrain_op(\n    metrics: Input[Metrics],\n\
-          \    retrain_triggered: Output[Artifact],\n    min_test_accuracy: float\
-          \ = 0.84,\n) -> None:\n    \"\"\"\n    Simple \"monitoring\" gate for assignment:\n\
-          \    if test_accuracy < threshold -> flag retraining.\n    \"\"\"\n    import\
-          \ os\n    import json\n\n    # KFP Metrics stores values in metadata\n \
-          \   m = metrics.metadata\n    test_acc = float(m.get(\"test_accuracy\",\
-          \ 0.0))\n\n    os.makedirs(retrain_triggered.path, exist_ok=True)\n    out\
-          \ = {\n        \"test_accuracy\": test_acc,\n        \"min_test_accuracy\"\
-          : float(min_test_accuracy),\n        \"retrain\": bool(test_acc < min_test_accuracy),\n\
-          \        \"reason\": \"below_threshold\" if test_acc < min_test_accuracy\
-          \ else \"ok\",\n    }\n    with open(os.path.join(retrain_triggered.path,\
-          \ \"monitor.json\"), \"w\", encoding=\"utf-8\") as f:\n        json.dump(out,\
-          \ f, indent=2)\n\n"
-        image: python:3.11-slim
     exec-preprocess-op:
       container:
         args:
@@ -267,10 +118,10 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
-          \ 'scikit-learn==1.4.2' 'joblib==1.4.2'  &&  python3 -m pip install --quiet\
-          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
-          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
+          \ 'scikit-learn==1.4.2' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -314,102 +165,16 @@ deploymentSpec:
           \            (\"cat\", OneHotEncoder(handle_unknown=\"ignore\", sparse_output=False),\
           \ categorical_idx),\n        ],\n        remainder=\"drop\",\n    )\n\n\
           \    X_obj = np.array(X_raw, dtype=object)\n    X = preprocessor.fit_transform(X_obj).astype(np.float32)\n\
-          \n    X_train, X_tmp, y_train, y_tmp = train_test_split(\n        X,\n \
-          \       y,\n        test_size=(test_size + val_size),\n        random_state=random_state,\n\
+          \n    X_train, X_tmp, y_train, y_tmp = train_test_split(\n        X, y,\n\
+          \        test_size=(test_size + val_size),\n        random_state=random_state,\n\
           \        stratify=y,\n    )\n\n    val_frac = val_size / max(1e-9, (val_size\
           \ + test_size))\n    X_val, X_test, y_val, y_test = train_test_split(\n\
-          \        X_tmp,\n        y_tmp,\n        test_size=(1.0 - val_frac),\n \
-          \       random_state=random_state,\n        stratify=y_tmp,\n    )\n\n \
-          \   os.makedirs(output_dataset.path, exist_ok=True)\n    np.savez_compressed(\n\
-          \        os.path.join(output_dataset.path, \"splits.npz\"),\n        X_train=X_train,\n\
-          \        y_train=y_train,\n        X_val=X_val,\n        y_val=y_val,\n\
-          \        X_test=X_test,\n        y_test=y_test,\n    )\n    joblib.dump(preprocessor,\
+          \        X_tmp, y_tmp,\n        test_size=(1.0 - val_frac),\n        random_state=random_state,\n\
+          \        stratify=y_tmp,\n    )\n\n    os.makedirs(output_dataset.path,\
+          \ exist_ok=True)\n    np.savez_compressed(\n        os.path.join(output_dataset.path,\
+          \ \"splits.npz\"),\n        X_train=X_train, y_train=y_train,\n        X_val=X_val,\
+          \ y_val=y_val,\n        X_test=X_test, y_test=y_test,\n    )\n    joblib.dump(preprocessor,\
           \ os.path.join(output_dataset.path, \"preprocessor.joblib\"))\n\n"
-        image: python:3.11-slim
-    exec-retrain-op:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - retrain_op
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
-          \ 'scikit-learn==1.4.2' 'joblib==1.4.2'  &&  python3 -m pip install --quiet\
-          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
-          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef retrain_op(\n    dataset: Input[Dataset],\n    best_params: Input[Artifact],\n\
-          \    monitor: Input[Artifact],\n    retrained_model: Output[Model],\n  \
-          \  retrain_metrics: Output[Metrics],\n    epochs: int = 10,\n    seed: int\
-          \ = 42,\n) -> None:\n    \"\"\"\n    Retraining step:\n    - Reads monitor.json.\
-          \ If retrain=false -> no-op (clean).\n    - If retrain=true -> trains with\
-          \ best_params for a few epochs and logs metrics.\n    \"\"\"\n    import\
-          \ os\n    import json\n    import subprocess\n    import sys\n    import\
-          \ numpy as np\n\n    # Read monitor decision\n    with open(os.path.join(monitor.path,\
-          \ \"monitor.json\"), \"r\", encoding=\"utf-8\") as f:\n        mon = json.load(f)\n\
-          \n    if not bool(mon.get(\"retrain\", False)):\n        retrain_metrics.log_metric(\"\
-          retrain_skipped\", 1.0)\n        retrain_metrics.log_metric(\"retrain_reason_ok\"\
-          , 1.0)\n        os.makedirs(retrained_model.path, exist_ok=True)\n     \
-          \   # Write a tiny marker so artifact exists\n        with open(os.path.join(retrained_model.path,\
-          \ \"SKIPPED.txt\"), \"w\", encoding=\"utf-8\") as wf:\n            wf.write(\"\
-          retrain=false; skipping retrain_op\\n\")\n        return\n\n    TORCH_CPU_INDEX\
-          \ = \"https://download.pytorch.org/whl/cpu\"\n    subprocess.check_call(\n\
-          \        [\n            sys.executable,\n            \"-m\",\n         \
-          \   \"pip\",\n            \"install\",\n            \"--quiet\",\n     \
-          \       \"--no-warn-script-location\",\n            \"--index-url\",\n \
-          \           TORCH_CPU_INDEX,\n            \"torch==2.1.2\",\n        ]\n\
-          \    )\n\n    import torch\n    import torch.nn as nn\n    from torch.utils.data\
-          \ import TensorDataset, DataLoader\n    from sklearn.metrics import accuracy_score,\
-          \ f1_score\n\n    # Seed\n    def set_seed(s: int) -> None:\n        import\
-          \ random\n\n        random.seed(s)\n        np.random.seed(s)\n        torch.manual_seed(s)\n\
-          \n    set_seed(seed)\n\n    with open(os.path.join(best_params.path, \"\
-          best_params.json\"), \"r\", encoding=\"utf-8\") as f:\n        bp = json.load(f)\n\
-          \n    lr = float(bp[\"lr\"])\n    hidden = int(bp[\"hidden\"])\n    dropout\
-          \ = float(bp[\"dropout\"])\n    batch_size = int(bp[\"batch_size\"])\n\n\
-          \    data = np.load(os.path.join(dataset.path, \"splits.npz\"))\n    X_train\
-          \ = data[\"X_train\"].astype(np.float32)\n    y_train = data[\"y_train\"\
-          ].astype(np.float32)\n    X_test = data[\"X_test\"].astype(np.float32)\n\
-          \    y_test = data[\"y_test\"].astype(np.float32)\n\n    Xtr = torch.from_numpy(X_train)\n\
-          \    ytr = torch.from_numpy(y_train)\n    Xt = torch.from_numpy(X_test)\n\
-          \n    in_dim = X_train.shape[1]\n    device = torch.device(\"cpu\")\n\n\
-          \    class MLP(nn.Module):\n        def __init__(self, d_in: int, d_hidden:\
-          \ int, p_drop: float):\n            super().__init__()\n            self.net\
-          \ = nn.Sequential(\n                nn.Linear(d_in, d_hidden),\n       \
-          \         nn.ReLU(),\n                nn.Dropout(p_drop),\n            \
-          \    nn.Linear(d_hidden, d_hidden),\n                nn.ReLU(),\n      \
-          \          nn.Dropout(p_drop),\n                nn.Linear(d_hidden, 1),\n\
-          \            )\n\n        def forward(self, x):\n            return self.net(x).squeeze(-1)\n\
-          \n    net = MLP(in_dim, hidden, dropout).to(device)\n    opt = torch.optim.Adam(net.parameters(),\
-          \ lr=lr)\n    loss_fn = nn.BCEWithLogitsLoss()\n\n    train_loader = DataLoader(TensorDataset(Xtr,\
-          \ ytr), batch_size=batch_size, shuffle=True)\n\n    for _ in range(epochs):\n\
-          \        net.train()\n        for xb, yb in train_loader:\n            opt.zero_grad(set_to_none=True)\n\
-          \            logits = net(xb)\n            loss = loss_fn(logits, yb)\n\
-          \            loss.backward()\n            opt.step()\n\n    net.eval()\n\
-          \    with torch.no_grad():\n        t_logits = net(Xt).cpu().numpy()\n\n\
-          \    t_proba = 1.0 / (1.0 + np.exp(-t_logits))\n    t_pred = (t_proba >=\
-          \ 0.5).astype(int)\n\n    test_acc = float(accuracy_score(y_test.astype(int),\
-          \ t_pred))\n    test_f1 = float(f1_score(y_test.astype(int), t_pred))\n\n\
-          \    retrain_metrics.log_metric(\"retrain_triggered\", 1.0)\n    retrain_metrics.log_metric(\"\
-          retrain_test_accuracy\", test_acc)\n    retrain_metrics.log_metric(\"retrain_test_f1\"\
-          , test_f1)\n\n    os.makedirs(retrained_model.path, exist_ok=True)\n   \
-          \ example = torch.zeros((1, in_dim), dtype=torch.float32).to(device)\n \
-          \   scripted = torch.jit.trace(net, example)\n    scripted.save(os.path.join(retrained_model.path,\
-          \ \"model.pt\"))\n\n"
         image: python:3.11-slim
     exec-train-eval-torch-op:
       container:
@@ -423,10 +188,10 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
-          \ 'scikit-learn==1.4.2' 'joblib==1.4.2'  &&  python3 -m pip install --quiet\
-          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
-          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
+          \ 'scikit-learn==1.4.2' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -439,74 +204,64 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train_eval_torch_op(\n    dataset: Input[Dataset],\n    best_params:\
-          \ Input[Artifact],\n    model: Output[Model],\n    metrics_out: Output[Metrics],\n\
-          \    epochs: int = 20,\n    weight_decay: float = 1e-4,\n    patience: int\
-          \ = 5,\n    seed: int = 42,\n) -> None:\n    \"\"\"\n    Train/eval using\
-          \ best_params.json from tune_op.\n    Saves TorchScript model to model.path/model.pt\
-          \ and logs metrics.\n    \"\"\"\n    import os\n    import json\n    import\
-          \ subprocess\n    import sys\n    import numpy as np\n\n    TORCH_CPU_INDEX\
-          \ = \"https://download.pytorch.org/whl/cpu\"\n    subprocess.check_call(\n\
-          \        [\n            sys.executable,\n            \"-m\",\n         \
-          \   \"pip\",\n            \"install\",\n            \"--quiet\",\n     \
-          \       \"--no-warn-script-location\",\n            \"--index-url\",\n \
-          \           TORCH_CPU_INDEX,\n            \"torch==2.1.2\",\n        ]\n\
-          \    )\n\n    import torch\n    import torch.nn as nn\n    from torch.utils.data\
-          \ import TensorDataset, DataLoader\n    from sklearn.metrics import accuracy_score,\
-          \ f1_score, log_loss\n\n    # Optional seed (keeps runs stable)\n    def\
-          \ set_seed(s: int) -> None:\n        import random\n\n        random.seed(s)\n\
-          \        np.random.seed(s)\n        torch.manual_seed(s)\n\n    set_seed(seed)\n\
-          \n    with open(os.path.join(best_params.path, \"best_params.json\"), \"\
-          r\", encoding=\"utf-8\") as f:\n        bp = json.load(f)\n\n    lr = float(bp[\"\
-          lr\"])\n    hidden = int(bp[\"hidden\"])\n    dropout = float(bp[\"dropout\"\
-          ])\n    batch_size = int(bp[\"batch_size\"])\n\n    data = np.load(os.path.join(dataset.path,\
-          \ \"splits.npz\"))\n    X_train = data[\"X_train\"].astype(np.float32)\n\
-          \    y_train = data[\"y_train\"].astype(np.float32)\n    X_val = data[\"\
-          X_val\"].astype(np.float32)\n    y_val = data[\"y_val\"].astype(np.float32)\n\
-          \    X_test = data[\"X_test\"].astype(np.float32)\n    y_test = data[\"\
-          y_test\"].astype(np.float32)\n\n    Xtr = torch.from_numpy(X_train)\n  \
-          \  ytr = torch.from_numpy(y_train)\n    Xv = torch.from_numpy(X_val)\n \
-          \   yv = torch.from_numpy(y_val)\n    Xt = torch.from_numpy(X_test)\n\n\
-          \    in_dim = X_train.shape[1]\n    device = torch.device(\"cpu\")\n\n \
-          \   class MLP(nn.Module):\n        def __init__(self, d_in: int, d_hidden:\
+          \ Input[Artifact],\n    model: Output[Model],            # \u2705 \u043E\
+          \u0432\u0430 \u043C\u043E\u0440\u0430 \u0434\u0430 \u0435 Model\n    metrics_out:\
+          \ Output[Metrics],\n    epochs: int = 20,\n    weight_decay: float = 1e-4,\n\
+          \    patience: int = 5,\n    seed: int = 42,\n) -> None:\n    import os,\
+          \ json, numpy as np\n    _install_torch_cpu()\n\n    import torch\n    import\
+          \ torch.nn as nn\n    from torch.utils.data import TensorDataset, DataLoader\n\
+          \    from sklearn.metrics import accuracy_score, f1_score, log_loss\n\n\
+          \    def set_seed(s: int) -> None:\n        import random\n        random.seed(s);\
+          \ np.random.seed(s); torch.manual_seed(s)\n\n    set_seed(seed)\n    device\
+          \ = torch.device(\"cpu\")\n\n    with open(os.path.join(best_params.path,\
+          \ \"best_params.json\"), \"r\", encoding=\"utf-8\") as f:\n        bp =\
+          \ json.load(f)\n\n    lr = float(bp[\"lr\"])\n    hidden = int(bp[\"hidden\"\
+          ])\n    dropout = float(bp[\"dropout\"])\n    batch_size = int(bp[\"batch_size\"\
+          ])\n\n    data = np.load(os.path.join(dataset.path, \"splits.npz\"))\n \
+          \   X_train = data[\"X_train\"].astype(np.float32)\n    y_train = data[\"\
+          y_train\"].astype(np.float32)\n    X_val = data[\"X_val\"].astype(np.float32)\n\
+          \    y_val = data[\"y_val\"].astype(np.int64)\n    X_test = data[\"X_test\"\
+          ].astype(np.float32)\n    y_test = data[\"y_test\"].astype(np.int64)\n\n\
+          \    Xtr = torch.from_numpy(X_train)\n    ytr = torch.from_numpy(y_train)\n\
+          \    Xv = torch.from_numpy(X_val)\n    yv = torch.from_numpy(y_val.astype(np.float32))\n\
+          \    Xt = torch.from_numpy(X_test)\n\n    in_dim = X_train.shape[1]\n\n\
+          \    class MLP(nn.Module):\n        def __init__(self, d_in: int, d_hidden:\
           \ int, p_drop: float):\n            super().__init__()\n            self.net\
-          \ = nn.Sequential(\n                nn.Linear(d_in, d_hidden),\n       \
-          \         nn.ReLU(),\n                nn.Dropout(p_drop),\n            \
-          \    nn.Linear(d_hidden, d_hidden),\n                nn.ReLU(),\n      \
-          \          nn.Dropout(p_drop),\n                nn.Linear(d_hidden, 1),\n\
-          \            )\n\n        def forward(self, x):\n            return self.net(x).squeeze(-1)\n\
-          \n    net = MLP(in_dim, hidden, dropout).to(device)\n    opt = torch.optim.Adam(net.parameters(),\
+          \ = nn.Sequential(\n                nn.Linear(d_in, d_hidden), nn.ReLU(),\
+          \ nn.Dropout(p_drop),\n                nn.Linear(d_hidden, d_hidden), nn.ReLU(),\
+          \ nn.Dropout(p_drop),\n                nn.Linear(d_hidden, 1),\n       \
+          \     )\n        def forward(self, x): return self.net(x).squeeze(-1)\n\n\
+          \    net = MLP(in_dim, hidden, dropout).to(device)\n    opt = torch.optim.Adam(net.parameters(),\
           \ lr=lr, weight_decay=weight_decay)\n    loss_fn = nn.BCEWithLogitsLoss()\n\
           \n    train_loader = DataLoader(TensorDataset(Xtr, ytr), batch_size=batch_size,\
           \ shuffle=True)\n    val_loader = DataLoader(TensorDataset(Xv, yv), batch_size=batch_size,\
           \ shuffle=False)\n\n    best_val_loss = float(\"inf\")\n    best_state =\
           \ None\n    bad_epochs = 0\n    last_val_acc = 0.0\n    last_val_f1 = 0.0\n\
-          \n    for _ep in range(1, epochs + 1):\n        net.train()\n        for\
-          \ xb, yb in train_loader:\n            opt.zero_grad(set_to_none=True)\n\
-          \            logits = net(xb)\n            loss = loss_fn(logits, yb)\n\
-          \            loss.backward()\n            opt.step()\n\n        net.eval()\n\
-          \        v_logits_all = []\n        v_y_all = []\n        with torch.no_grad():\n\
-          \            for xb, yb in val_loader:\n                v_logits_all.append(net(xb).cpu())\n\
-          \                v_y_all.append(yb)\n\n        v_logits = torch.cat(v_logits_all,\
-          \ dim=0).numpy()\n        v_y = torch.cat(v_y_all, dim=0).numpy()\n\n  \
-          \      v_proba = 1.0 / (1.0 + np.exp(-v_logits))\n        v_pred = (v_proba\
-          \ >= 0.5).astype(int)\n\n        val_acc = float(accuracy_score(v_y.astype(int),\
-          \ v_pred))\n        val_f1 = float(f1_score(v_y.astype(int), v_pred))\n\
-          \        val_ll = float(log_loss(v_y.astype(int), v_proba))\n\n        last_val_acc\
-          \ = val_acc\n        last_val_f1 = val_f1\n\n        if val_ll + 1e-6 <\
-          \ best_val_loss:\n            best_val_loss = val_ll\n            best_state\
-          \ = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}\n\
-          \            bad_epochs = 0\n        else:\n            bad_epochs += 1\n\
-          \            if bad_epochs >= patience:\n                break\n\n    if\
-          \ best_state is not None:\n        net.load_state_dict(best_state)\n\n \
-          \   net.eval()\n    with torch.no_grad():\n        t_logits = net(Xt).cpu().numpy()\n\
+          \n    for _ in range(epochs):\n        net.train()\n        for xb, yb in\
+          \ train_loader:\n            opt.zero_grad(set_to_none=True)\n         \
+          \   loss = loss_fn(net(xb), yb)\n            loss.backward()\n         \
+          \   opt.step()\n\n        net.eval()\n        with torch.no_grad():\n  \
+          \          v_logits = torch.cat([net(xb).cpu() for xb, _ in val_loader],\
+          \ dim=0).numpy()\n            v_y = torch.cat([yb.cpu() for _, yb in val_loader],\
+          \ dim=0).numpy()\n        v_true = (v_y >= 0.5).astype(int)\n\n        v_proba\
+          \ = 1.0 / (1.0 + np.exp(-v_logits))\n        v_pred = (v_proba >= 0.5).astype(int)\n\
+          \n        val_acc = float(accuracy_score(v_true, v_pred))\n        val_f1\
+          \ = float(f1_score(v_true, v_pred))\n        val_ll = float(log_loss(v_true,\
+          \ v_proba))\n\n        last_val_acc = val_acc\n        last_val_f1 = val_f1\n\
+          \n        if val_ll + 1e-6 < best_val_loss:\n            best_val_loss =\
+          \ val_ll\n            best_state = {k: v.detach().cpu().clone() for k, v\
+          \ in net.state_dict().items()}\n            bad_epochs = 0\n        else:\n\
+          \            bad_epochs += 1\n            if bad_epochs >= patience:\n \
+          \               break\n\n    if best_state is not None:\n        net.load_state_dict(best_state)\n\
+          \n    net.eval()\n    with torch.no_grad():\n        t_logits = net(Xt).cpu().numpy()\n\
           \n    t_proba = 1.0 / (1.0 + np.exp(-t_logits))\n    t_pred = (t_proba >=\
-          \ 0.5).astype(int)\n\n    test_acc = float(accuracy_score(y_test.astype(int),\
-          \ t_pred))\n    test_f1 = float(f1_score(y_test.astype(int), t_pred))\n\n\
-          \    metrics_out.log_metric(\"val_log_loss_best\", float(best_val_loss))\n\
-          \    metrics_out.log_metric(\"val_accuracy\", float(last_val_acc))\n   \
-          \ metrics_out.log_metric(\"val_f1\", float(last_val_f1))\n    metrics_out.log_metric(\"\
-          test_accuracy\", float(test_acc))\n    metrics_out.log_metric(\"test_f1\"\
-          , float(test_f1))\n\n    os.makedirs(model.path, exist_ok=True)\n    example\
+          \ 0.5).astype(int)\n\n    test_acc = float(accuracy_score(y_test, t_pred))\n\
+          \    test_f1 = float(f1_score(y_test, t_pred))\n\n    metrics_out.log_metric(\"\
+          val_log_loss_best\", float(best_val_loss))\n    metrics_out.log_metric(\"\
+          val_accuracy\", float(last_val_acc))\n    metrics_out.log_metric(\"val_f1\"\
+          , float(last_val_f1))\n    metrics_out.log_metric(\"test_accuracy\", float(test_acc))\n\
+          \    metrics_out.log_metric(\"test_f1\", float(test_f1))\n\n    # \u2705\
+          \ save as model\n    os.makedirs(model.path, exist_ok=True)\n    example\
           \ = torch.zeros((1, in_dim), dtype=torch.float32).to(device)\n    scripted\
           \ = torch.jit.trace(net, example)\n    scripted.save(os.path.join(model.path,\
           \ \"model.pt\"))\n\n"
@@ -523,10 +278,10 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
-          \ 'scikit-learn==1.4.2' 'joblib==1.4.2'  &&  python3 -m pip install --quiet\
-          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
-          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.26.4'\
+          \ 'scikit-learn==1.4.2' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -540,37 +295,26 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef tune_op(\n    dataset: Input[Dataset],\n    tuning_metrics: Output[Metrics],\n\
           \    best_params: Output[Artifact],\n    trials: int = 10,\n    epochs:\
-          \ int = 10,\n    seed: int = 42,\n) -> None:\n    \"\"\"\n    Lightweight\
-          \ (Katib-like) random search.\n    Writes best_params.json to best_params.path.\n\
-          \    Logs best_val_log_loss, best_val_acc, best_val_f1.\n    \"\"\"\n  \
-          \  import json\n    import os\n    import random\n    import subprocess\n\
-          \    import sys\n    import numpy as np\n\n    random.seed(seed)\n\n   \
-          \ # Search space (simple)\n    lr_space = [0.0005, 0.001, 0.002, 0.003]\n\
-          \    hidden_space = [64, 128, 256]\n    dropout_space = [0.0, 0.1, 0.2,\
-          \ 0.3]\n    batch_space = [128, 256, 512]\n\n    # Install torch CPU (use\
-          \ current interpreter; Windows doesn't have `python3`)\n    TORCH_CPU_INDEX\
-          \ = \"https://download.pytorch.org/whl/cpu\"\n    subprocess.check_call(\n\
-          \        [\n            sys.executable,\n            \"-m\",\n         \
-          \   \"pip\",\n            \"install\",\n            \"--quiet\",\n     \
-          \       \"--no-warn-script-location\",\n            \"--index-url\",\n \
-          \           TORCH_CPU_INDEX,\n            \"torch==2.1.2\",\n        ]\n\
-          \    )\n\n    import torch\n    import torch.nn as nn\n    from torch.utils.data\
-          \ import TensorDataset, DataLoader\n    from sklearn.metrics import accuracy_score,\
-          \ f1_score, log_loss\n\n    data = np.load(os.path.join(dataset.path, \"\
-          splits.npz\"))\n    X_train = data[\"X_train\"].astype(np.float32)\n   \
-          \ y_train = data[\"y_train\"].astype(np.float32)\n    X_val = data[\"X_val\"\
-          ].astype(np.float32)\n    y_val = data[\"y_val\"].astype(np.float32)\n\n\
-          \    Xtr = torch.from_numpy(X_train)\n    ytr = torch.from_numpy(y_train)\n\
-          \    Xv = torch.from_numpy(X_val)\n\n    in_dim = X_train.shape[1]\n   \
-          \ device = torch.device(\"cpu\")\n\n    class MLP(nn.Module):\n        def\
-          \ __init__(self, d_in: int, d_hidden: int, p_drop: float):\n           \
-          \ super().__init__()\n            self.net = nn.Sequential(\n          \
-          \      nn.Linear(d_in, d_hidden),\n                nn.ReLU(),\n        \
-          \        nn.Dropout(p_drop),\n                nn.Linear(d_hidden, d_hidden),\n\
-          \                nn.ReLU(),\n                nn.Dropout(p_drop),\n     \
-          \           nn.Linear(d_hidden, 1),\n            )\n\n        def forward(self,\
-          \ x):\n            return self.net(x).squeeze(-1)\n\n    best = None\n \
-          \   best_score = -1.0  # maximize val_f1\n\n    for t in range(1, trials\
+          \ int = 5,\n    seed: int = 42,\n) -> None:\n    import json, os, random\n\
+          \    import numpy as np\n\n    random.seed(seed)\n    np.random.seed(seed)\n\
+          \n    lr_space = [0.0005, 0.001, 0.002, 0.003]\n    hidden_space = [64,\
+          \ 128, 256]\n    dropout_space = [0.0, 0.1, 0.2, 0.3]\n    batch_space =\
+          \ [128, 256, 512]\n\n    _install_torch_cpu()\n    import torch\n    import\
+          \ torch.nn as nn\n    from torch.utils.data import TensorDataset, DataLoader\n\
+          \    from sklearn.metrics import accuracy_score, f1_score, log_loss\n\n\
+          \    data = np.load(os.path.join(dataset.path, \"splits.npz\"))\n    X_train\
+          \ = data[\"X_train\"].astype(np.float32)\n    y_train = data[\"y_train\"\
+          ].astype(np.float32)\n    X_val = data[\"X_val\"].astype(np.float32)\n \
+          \   y_val = data[\"y_val\"].astype(np.int64)\n\n    Xtr = torch.from_numpy(X_train)\n\
+          \    ytr = torch.from_numpy(y_train)\n    Xv = torch.from_numpy(X_val)\n\
+          \n    in_dim = X_train.shape[1]\n    device = torch.device(\"cpu\")\n\n\
+          \    class MLP(nn.Module):\n        def __init__(self, d_in: int, d_hidden:\
+          \ int, p_drop: float):\n            super().__init__()\n            self.net\
+          \ = nn.Sequential(\n                nn.Linear(d_in, d_hidden), nn.ReLU(),\
+          \ nn.Dropout(p_drop),\n                nn.Linear(d_hidden, d_hidden), nn.ReLU(),\
+          \ nn.Dropout(p_drop),\n                nn.Linear(d_hidden, 1),\n       \
+          \     )\n        def forward(self, x): return self.net(x).squeeze(-1)\n\n\
+          \    best = None\n    best_score = -1.0\n\n    for t in range(1, trials\
           \ + 1):\n        lr = random.choice(lr_space)\n        hidden = random.choice(hidden_space)\n\
           \        dropout = random.choice(dropout_space)\n        batch_size = random.choice(batch_space)\n\
           \n        net = MLP(in_dim, hidden, dropout).to(device)\n        opt = torch.optim.Adam(net.parameters(),\
@@ -578,63 +322,39 @@ deploymentSpec:
           \ = DataLoader(TensorDataset(Xtr, ytr), batch_size=batch_size, shuffle=True)\n\
           \n        for _ in range(epochs):\n            net.train()\n           \
           \ for xb, yb in train_loader:\n                opt.zero_grad(set_to_none=True)\n\
-          \                logits = net(xb)\n                loss = loss_fn(logits,\
-          \ yb)\n                loss.backward()\n                opt.step()\n\n \
-          \       net.eval()\n        with torch.no_grad():\n            v_logits\
-          \ = net(Xv).cpu().numpy()\n\n        v_proba = 1.0 / (1.0 + np.exp(-v_logits))\n\
-          \        v_pred = (v_proba >= 0.5).astype(int)\n\n        val_acc = float(accuracy_score(y_val.astype(int),\
-          \ v_pred))\n        val_f1 = float(f1_score(y_val.astype(int), v_pred))\n\
-          \        val_ll = float(log_loss(y_val.astype(int), v_proba))\n\n      \
-          \  print(\n            f\"trial={t}/{trials} lr={lr} hidden={hidden} drop={dropout}\
-          \ bs={batch_size} \"\n            f\"val_acc={val_acc:.4f} val_f1={val_f1:.4f}\
-          \ val_logloss={val_ll:.4f}\"\n        )\n\n        if val_f1 > best_score:\n\
-          \            best_score = val_f1\n            best = {\n               \
-          \ \"lr\": lr,\n                \"hidden\": hidden,\n                \"dropout\"\
-          : dropout,\n                \"batch_size\": batch_size,\n              \
-          \  \"val_accuracy\": val_acc,\n                \"val_f1\": val_f1,\n   \
-          \             \"val_log_loss\": val_ll,\n                \"trials\": trials,\n\
-          \                \"epochs_per_trial\": epochs,\n            }\n\n    os.makedirs(best_params.path,\
-          \ exist_ok=True)\n    with open(os.path.join(best_params.path, \"best_params.json\"\
-          ), \"w\", encoding=\"utf-8\") as f:\n        json.dump(best, f, indent=2)\n\
-          \n    tuning_metrics.log_metric(\"best_val_accuracy\", float(best[\"val_accuracy\"\
-          ]))\n    tuning_metrics.log_metric(\"best_val_f1\", float(best[\"val_f1\"\
-          ]))\n    tuning_metrics.log_metric(\"best_val_log_loss\", float(best[\"\
-          val_log_loss\"]))\n\n"
+          \                loss = loss_fn(net(xb), yb)\n                loss.backward()\n\
+          \                opt.step()\n\n        net.eval()\n        with torch.no_grad():\n\
+          \            v_logits = net(Xv).cpu().numpy()\n\n        v_proba = 1.0 /\
+          \ (1.0 + np.exp(-v_logits))\n        v_pred = (v_proba >= 0.5).astype(int)\n\
+          \n        val_acc = float(accuracy_score(y_val, v_pred))\n        val_f1\
+          \ = float(f1_score(y_val, v_pred))\n        val_ll = float(log_loss(y_val,\
+          \ v_proba))\n\n        print(f\"trial={t}/{trials} val_accuracy={val_acc:.6f}\
+          \ val_f1={val_f1:.6f} val_log_loss={val_ll:.6f}\")\n\n        if val_f1\
+          \ > best_score:\n            best_score = val_f1\n            best = {\"\
+          lr\": lr, \"hidden\": hidden, \"dropout\": dropout, \"batch_size\": batch_size,\n\
+          \                    \"val_accuracy\": val_acc, \"val_f1\": val_f1, \"val_log_loss\"\
+          : val_ll}\n\n    os.makedirs(best_params.path, exist_ok=True)\n    with\
+          \ open(os.path.join(best_params.path, \"best_params.json\"), \"w\", encoding=\"\
+          utf-8\") as f:\n        json.dump(best, f, indent=2)\n\n    tuning_metrics.log_metric(\"\
+          best_val_accuracy\", float(best[\"val_accuracy\"]))\n    tuning_metrics.log_metric(\"\
+          best_val_f1\", float(best[\"val_f1\"]))\n    tuning_metrics.log_metric(\"\
+          best_val_log_loss\", float(best[\"val_log_loss\"]))\n\n"
         image: python:3.11-slim
 pipelineInfo:
   name: adult-income-end2end
 root:
   dag:
+    outputs:
+      artifacts:
+        train-eval-torch-op-metrics_out:
+          artifactSelectors:
+          - outputArtifactKey: metrics_out
+            producerSubtask: train-eval-torch-op
+        tune-op-tuning_metrics:
+          artifactSelectors:
+          - outputArtifactKey: tuning_metrics
+            producerSubtask: tune-op
     tasks:
-      build-serving-manifest-op:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-build-serving-manifest-op
-        inputs:
-          parameters:
-            image:
-              componentInputParameter: serving_image
-        taskInfo:
-          name: build-serving-manifest-op
-      monitor-and-maybe-retrain-op:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-monitor-and-maybe-retrain-op
-        dependentTasks:
-        - train-eval-torch-op
-        inputs:
-          artifacts:
-            metrics:
-              taskOutputArtifact:
-                outputArtifactKey: metrics_out
-                producerTask: train-eval-torch-op
-          parameters:
-            min_test_accuracy:
-              componentInputParameter: min_test_accuracy
-        taskInfo:
-          name: monitor-and-maybe-retrain-op
       preprocess-op:
         cachingOptions:
           enableCache: true
@@ -646,42 +366,8 @@ root:
               componentInputParameter: dataset_url
             random_state:
               componentInputParameter: random_state
-            test_size:
-              componentInputParameter: test_size
-            val_size:
-              componentInputParameter: val_size
         taskInfo:
           name: preprocess-op
-      retrain-op:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-retrain-op
-        dependentTasks:
-        - monitor-and-maybe-retrain-op
-        - preprocess-op
-        - tune-op
-        inputs:
-          artifacts:
-            best_params:
-              taskOutputArtifact:
-                outputArtifactKey: best_params
-                producerTask: tune-op
-            dataset:
-              taskOutputArtifact:
-                outputArtifactKey: output_dataset
-                producerTask: preprocess-op
-            monitor:
-              taskOutputArtifact:
-                outputArtifactKey: retrain_triggered
-                producerTask: monitor-and-maybe-retrain-op
-          parameters:
-            epochs:
-              componentInputParameter: retrain_epochs
-            seed:
-              componentInputParameter: random_state
-        taskInfo:
-          name: retrain-op
       train-eval-torch-op:
         cachingOptions:
           enableCache: true
@@ -703,9 +389,6 @@ root:
           parameters:
             epochs:
               componentInputParameter: train_epochs
-            patience:
-              runtimeValue:
-                constant: 5.0
             seed:
               componentInputParameter: random_state
         taskInfo:
@@ -738,26 +421,10 @@ root:
         defaultValue: https://archive.ics.uci.edu/ml/machine-learning-databases/adult
         isOptional: true
         parameterType: STRING
-      min_test_accuracy:
-        defaultValue: 0.84
-        isOptional: true
-        parameterType: NUMBER_DOUBLE
       random_state:
         defaultValue: 42.0
         isOptional: true
         parameterType: NUMBER_INTEGER
-      retrain_epochs:
-        defaultValue: 10.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      serving_image:
-        defaultValue: adult-income-api:local
-        isOptional: true
-        parameterType: STRING
-      test_size:
-        defaultValue: 0.2
-        isOptional: true
-        parameterType: NUMBER_DOUBLE
       train_epochs:
         defaultValue: 20.0
         isOptional: true
@@ -770,9 +437,15 @@ root:
         defaultValue: 5.0
         isOptional: true
         parameterType: NUMBER_INTEGER
-      val_size:
-        defaultValue: 0.1
-        isOptional: true
-        parameterType: NUMBER_DOUBLE
+  outputDefinitions:
+    artifacts:
+      train-eval-torch-op-metrics_out:
+        artifactType:
+          schemaTitle: system.Metrics
+          schemaVersion: 0.0.1
+      tune-op-tuning_metrics:
+        artifactType:
+          schemaTitle: system.Metrics
+          schemaVersion: 0.0.1
 schemaVersion: 2.1.0
-sdkVersion: kfp-2.15.2
+sdkVersion: kfp-2.4.0
