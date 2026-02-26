@@ -36,10 +36,9 @@ jobs:
       # ✅ Security: SAST (Semgrep)
       # ---------------------------
       - name: SAST scan (Semgrep)
-        env:
-          SEMGREP_ENABLE_VERSION_CHECK: "0"
-        run: |
-          semgrep --config=p/ci --error --metrics=off
+        uses: returntocorp/semgrep-action@v1
+        with: 
+          config: p/ci
 
       # ---------------------------
       # ✅ Security: Secret scanning (Gitleaks)
