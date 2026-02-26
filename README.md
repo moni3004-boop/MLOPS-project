@@ -350,7 +350,7 @@ The solution is validated on two different environments with minimal changes, us
 Screenshots:
 - ![Minikube Nodes](docs/images/nodes.png)
 - ![Minikube Workloads](docs/images/pods.png)
-- ![Minikube Health](docs/images/health-cloud.png)
+- ![Minikube Health](docs/images/healt-cloud.png)
 
 ### Portability Notes
 
