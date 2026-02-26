@@ -350,6 +350,61 @@ CI workflow includes:
 ![CI Run](docs/images/cd-cd.png)
 
 ---
+---
+
+## Security & DevSecOps
+
+This project integrates automated security controls as part of the CI/CD workflow to ensure production readiness and compliance with DevSecOps best practices.
+
+Security validation is enforced automatically in the GitHub Actions pipeline.
+
+---
+
+### Implemented Security Controls
+
+#### 1. Dependency Vulnerability Scanning (pip-audit)
+
+- Scans all Python dependencies listed in `requirements.txt`
+- Detects known CVEs from vulnerability databases
+- CI fails automatically if vulnerabilities are detected
+![pip-audit](docs/images/pip-audit.png)
+
+#### 2. Static Application Security Testing (SAST – Semgrep)
+
+- Scans source code for insecure coding patterns
+- Detects misconfigurations, unsafe calls, and risky constructs
+- Configured as a blocking security gate in CI
+
+![semgrep](docs/images/sast.png)
+
+#### 3. Secret Detection (Gitleaks)
+
+- Prevents accidental credential or token exposure
+- Scans repository content for:
+  - API keys
+  - Private keys
+  - Access tokens
+  - Passwords
+- CI fails if secrets are detected
+
+![gitleaks](docs/images/secret-scan.png)
+
+
+---
+
+### Security Gate Enforcement
+
+The CI/CD pipeline is configured to automatically fail if:
+
+- Vulnerable dependencies are detected
+- Static analysis finds blocking issues
+- Secrets are committed to the repository
+- Container vulnerabilities exceed allowed severity
+
+This guarantees that insecure code cannot be merged into the main branch.
+
+Security workflow configuration:
+.github/workflows/mlops-ci-cd.yml
 
 ## Monitoring & Retraining
 
