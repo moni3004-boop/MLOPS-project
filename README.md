@@ -213,7 +213,7 @@ pipeline/adult_income_end2end.yaml
 Pipeline SDK implementation:
 
 ```
-pipeline/kfp_pipeline.py
+pipeline/adult_income_end2end_pipeline.py
 ```
 
 ### Completed Pipeline Run
