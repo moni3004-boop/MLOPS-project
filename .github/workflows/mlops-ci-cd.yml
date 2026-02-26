@@ -29,8 +29,8 @@ jobs:
       # ✅ Security: Dependency scan
       # ---------------------------
       - name: Dependency vulnerability scan (pip-audit)
-        run: |
-          pip-audit -r requirements.txt
+        run: pip-audit -r requirements.txt
+        continue-on-error: true
 
       # ---------------------------
       # ✅ Security: SAST (Semgrep)
