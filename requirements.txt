@@ -6,3 +6,4 @@ joblib
 fastapi
 uvicorn[standard]
 prometheus-client
+torch==2.2.2

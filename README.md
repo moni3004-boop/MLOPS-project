@@ -329,6 +329,34 @@ manifests/overlays/gke/
 The use of Kustomize allows deployment across different Kubernetes environments without modifying core manifests.
 
 ---
+---
+
+## Multi-Cloud Portability
+
+The solution is validated on two different environments with minimal changes, using Kubernetes manifests and Kustomize overlays.
+
+### Platform A (Cloud)
+- **AWS-hosted Kubeflow** (namespace: `participant-17`)
+- Evidence: successful Kubeflow pipeline execution and artifacts (see pipeline screenshots)
+
+### Platform B (Local)
+- **Minikube (Docker driver) on Windows**
+- Deployed the same FastAPI serving component and verified it via `/health` endpoint
+- Evidence:
+  - `kubectl get nodes` (Minikube cluster ready)
+  - `kubectl -n participant-17 get pods/svc` (workloads running)
+  - `curl http://localhost:8000/health` returns `{"status":"ok"}`
+
+Screenshots:
+- ![Minikube Nodes](docs/images/nodes.png)
+- ![Minikube Workloads](docs/images/pods.png)
+- ![Minikube Health](docs/images/health-cloud.png)
+
+### Portability Notes
+
+- Core application code and container image remain unchanged
+- Only platform-specific configuration differs (local vs cloud ingress/storage/cluster access)
+- Serving is validated consistently across both environments using the same API endpoints
 
 ## CI/CD Automation
 
@@ -399,7 +427,7 @@ The CI/CD pipeline is configured to automatically fail if:
 - Vulnerable dependencies are detected
 - Static analysis finds blocking issues
 - Secrets are committed to the repository
-- Container vulnerabilities exceed allowed severity
+
 
 This guarantees that insecure code cannot be merged into the main branch.
 
@@ -474,6 +502,33 @@ This implementation demonstrates production-oriented design principles:
 - Experiment traceability  
 
 The architecture is designed for extensibility and portability across different Kubernetes environments.
+
+---
+
+## Cost Considerations
+
+The project is designed with cost-efficiency in mind.
+
+### Platform A (Cloud – AWS Hosted Kubeflow)
+
+Estimated cost factors:
+- Compute instances for Kubeflow
+- Storage (EBS / S3)
+- Network traffic
+
+Optimization strategies:
+- Use small instance types for experimentation
+- Avoid long-running GPU instances
+- Trigger retraining manually instead of continuous retraining
+- Use lightweight container images
+
+### Platform B (Local – Minikube)
+
+- No cloud cost
+- Uses local Docker runtime
+- Ideal for development and validation
+
+This hybrid approach allows experimentation in cloud environments while maintaining low development costs locally.
 
 ## Conclusion
 
